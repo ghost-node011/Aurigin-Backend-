@@ -51,28 +51,35 @@ to update.
 
 ## Deploying to Vercel
 
-`api/[...path].js` is Vercel's zero-config catch-all route — every request
-under `/api/*` resolves to this one serverless function with **no
-vercel.json needed** (an earlier version used the legacy `builds`/`routes`
-config, which turned out to be unreliable with this project's ESM + relative
-imports and caused `FUNCTION_INVOCATION_FAILED` crashes; the catch-all
-filename convention is the more robustly supported path). It wraps the same
-Express app used for local dev (`src/app.js`) — `src/index.js` (with its
-`.listen()` call) is local-dev-only and never invoked on Vercel. `db.js`
-caches the Mongoose connection across warm invocations so requests don't
-each open a new connection to Atlas.
+`vercel.json` rewrites every request — at any path — to `api/index.js`, which
+re-exports the same Express app used for local dev (`src/app.js`). Express
+apps are themselves valid `(req, res)` handlers, so that re-export is the
+whole serverless function; there's no wrapper around it that Vercel could
+end up invoking instead.
 
-1. Push this directory to its own GitHub repo (it's not one yet).
-2. In the Vercel dashboard: **Add New… → Project**, import that repo.
-3. Set these environment variables on the Vercel project (Settings →
+The explicit rewrite replaced an earlier filesystem catch-all
+(`api/[...path].js`), which only matched single-segment paths under `/api/`
+in practice — multi-segment routes like `/api/auth/login` hit Vercel's own
+404 and never reached Express. An earlier attempt at the legacy
+`builds`/`routes` config was also unreliable with this project's ESM +
+relative imports and caused `FUNCTION_INVOCATION_FAILED` crashes.
+
+`src/index.js` (with its `.listen()` call) is local-dev-only and never
+invoked on Vercel. `db.js` caches the Mongoose connection across warm
+invocations so requests don't each open a new connection to Atlas.
+
+1. In the Vercel dashboard: **Add New… → Project**, import this repo
+   ([Aurigin-Backend-](https://github.com/gaurank-sharma/Aurigin-Backend-)).
+2. Set these environment variables on the Vercel project (Settings →
    Environment Variables) — not in a committed file:
    - `MONGODB_URI` — the same Atlas connection string from `.env`
    - `JWT_SECRET` — the same random secret from `.env`
    - `CORS_ORIGIN` — the deployed frontend's origin, e.g.
      `https://aurigin-dashboard.vercel.app` (comma-separate multiple origins)
-4. In MongoDB Atlas → Network Access, make sure `0.0.0.0/0` (Allow access
+3. In MongoDB Atlas → Network Access, make sure `0.0.0.0/0` (Allow access
    from anywhere) is allowed — Vercel functions run from dynamic IPs, not a
    fixed one, so a locked-down allowlist will reject every connection.
-5. Deploy. The API will be live at `https://<your-project>.vercel.app/api/...`.
-6. Back on the frontend project, set `VITE_API_URL` to
+4. Deploy, then check `https://<your-project>.vercel.app/api/health` returns
+   `{ ok: true }`.
+5. Back on the frontend project, set `VITE_API_URL` to
    `https://<your-project>.vercel.app/api` and redeploy it.

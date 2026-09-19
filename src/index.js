@@ -1,5 +1,5 @@
 // Local dev entrypoint (`npm run dev` / `npm start`). Vercel doesn't use
-// this file — see api/[...path].js, which re-exports the same `app` as a
+// this file — see api/index.js, which re-exports the same `app` as a
 // serverless function instead of calling .listen(). Connecting up front
 // here (rather than relying on app.js's connect-on-first-request
 // middleware) just makes local dev fail fast if Mongo is unreachable.
