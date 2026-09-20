@@ -2,6 +2,7 @@ import { Router } from "express";
 import { WfhRequest } from "../models/WfhRequest.js";
 import { Employee } from "../models/Employee.js";
 import { todayISO } from "../lib/helpers.js";
+import { probationWfhBlock } from "../lib/wfh.js";
 import { requireRole, requireSelf } from "../middleware/auth.js";
 
 export const wfhRouter = Router();
@@ -18,6 +19,9 @@ wfhRouter.post("/", requireSelf("employeeId"), async (req, res) => {
   }
   const employee = await Employee.findById(employeeId);
   if (!employee) return res.status(404).json({ error: "Employee not found" });
+
+  const blocked = await probationWfhBlock(employee, date);
+  if (blocked) return res.status(400).json({ error: blocked });
 
   const request = await WfhRequest.create({
     employeeId,

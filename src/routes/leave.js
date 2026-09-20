@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { LeaveRequest } from "../models/LeaveRequest.js";
 import { Employee } from "../models/Employee.js";
-import { daysBetweenInclusive, todayISO } from "../lib/helpers.js";
+import { daysBetweenInclusive, todayISO, accruedLeaveBalances } from "../lib/helpers.js";
 import { requireRole, requireSelf } from "../middleware/auth.js";
+import { LEAVE_TYPE_ACCRUAL } from "../lib/constants.js";
 
 export const leaveRouter = Router();
 
@@ -19,12 +20,35 @@ leaveRouter.post("/", requireSelf("employeeId"), async (req, res) => {
   const employee = await Employee.findById(employeeId);
   if (!employee) return res.status(404).json({ error: "Employee not found" });
 
+  // Handbook §6.4 — leave accrues during probation but is availed only
+  // after confirmation.
+  if (employee.employmentStatus === "Probation") {
+    return res.status(403).json({
+      error: "Leave can be availed after successful completion of probation (Handbook §6.4).",
+    });
+  }
+
+  if (!LEAVE_TYPE_ACCRUAL[type]) {
+    return res.status(400).json({ error: `Unknown leave type "${type}"` });
+  }
+
+  // Accrued-to-date, not the full-year entitlement — you can't spend leave
+  // you haven't earned yet.
+  const days = daysBetweenInclusive(startDate, endDate);
+  const balance = accruedLeaveBalances(employee)[type];
+  const remaining = balance.quota - balance.used;
+  if (days > remaining) {
+    return res.status(400).json({
+      error: `Only ${remaining} day(s) of ${type} leave accrued so far; you requested ${days}.`,
+    });
+  }
+
   const request = await LeaveRequest.create({
     employeeId,
     type,
     startDate,
     endDate,
-    days: daysBetweenInclusive(startDate, endDate),
+    days,
     status: "Pending",
     reason: reason || "",
     appliedOn: todayISO(),

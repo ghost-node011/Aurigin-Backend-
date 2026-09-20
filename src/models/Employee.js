@@ -23,6 +23,14 @@ const employeeSchema = new mongoose.Schema(
     location: { type: String, default: "" },
     employmentType: { type: String, default: "Full-time" },
     status: { type: String, enum: ["Active", "Onboarding"], default: "Active" },
+    // Handbook §1.8 / §4.5 — probation is the initial assessment period
+    // (six months by default); confirmation is a deliberate HR action, so
+    // this never flips on its own. It gates leave (§6.4) and tightens the
+    // WFH allowance (§1.13), which is why it's separate from `status`
+    // (onboarding vs active) rather than folded into it.
+    employmentStatus: { type: String, enum: ["Probation", "Confirmed"], default: "Probation" },
+    probationEndDate: { type: String, default: null },
+    confirmedOn: { type: String, default: null },
     dateOfJoining: { type: String, required: true },
     phone: { type: String, default: "" },
     color: { type: String, default: "#013fd2" },
