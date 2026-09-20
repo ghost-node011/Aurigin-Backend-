@@ -58,20 +58,6 @@ function minutesToTime(totalMinutes) {
 
 const SEED_EMPLOYEES = [
   {
-    id: "udit",
-    name: "Udit",
-    email: "udit@auriginmedia.com",
-    role: "admin",
-    title: "Administrator",
-    department: "leadership",
-    managerId: null,
-    location: "Remote",
-    employmentType: "Full-time",
-    status: "Active",
-    dateOfJoining: "2026-08-10",
-    color: "#013fd2",
-  },
-  {
     id: "arjun",
     name: "Arjun",
     email: "arjun@auriginmedia.com",
@@ -120,7 +106,7 @@ const SEED_EMPLOYEES = [
     role: "employee",
     title: "Full Stack Developer",
     department: "engineering",
-    managerId: "udit",
+    managerId: "arjun",
     location: "Remote",
     employmentType: "Full-time",
     status: "Active",
@@ -218,19 +204,19 @@ function leaveRequest(id, employeeId, type, startOffset, endOffset, status, reas
 }
 
 const LEAVE_REQUESTS = [
-  leaveRequest("lr-1", "gaurank-sharma", "casual", 5, 6, "Pending", "Family function back home", "udit"),
+  leaveRequest("lr-1", "gaurank-sharma", "casual", 5, 6, "Pending", "Family function back home", "arjun"),
   leaveRequest("lr-2", "avantika", "sick", 1, 1, "Pending", "Fever, resting at home", "arjun"),
   leaveRequest("lr-3", "aurigin-media-hr", "earned", -10, -8, "Approved", "Family trip", "arjun", "Enjoy the trip!"),
 ];
 
 const KUDOS = [
   {
-    fromId: "udit",
+    fromId: "arjun",
     toIds: ["gaurank-sharma"],
     value: "excellence",
     message: "Gaurank shipped the new HR portal a full week early and it looks fantastic. Huge win for the team.",
     date: iso(-1),
-    likedBy: ["arjun", "aurigin-media-hr"],
+    likedBy: ["aurigin-media-hr", "avantika"],
   },
   {
     fromId: "arjun",
@@ -238,7 +224,7 @@ const KUDOS = [
     value: "ownership",
     message: "HR ran onboarding for the team this month without missing a single step. Amazing ownership.",
     date: iso(-2),
-    likedBy: ["udit", "avantika"],
+    likedBy: ["avantika"],
   },
   {
     fromId: "aurigin-media-hr",
@@ -246,7 +232,7 @@ const KUDOS = [
     value: "teamwork",
     message: "Avantika jumped in to help coordinate this quarter's launch under a tight deadline. Great collaboration.",
     date: iso(-3),
-    likedBy: ["udit", "arjun"],
+    likedBy: ["arjun"],
   },
 ];
 
@@ -255,7 +241,7 @@ const ANNOUNCEMENTS = [
     title: "Welcome to the new Aurigin People portal!",
     body: "This is the internal HR portal for Aurigin Media — track attendance, leave, onboarding, recognition, and more, all in one place.",
     category: "general",
-    authorId: "udit",
+    authorId: "arjun",
     date: iso(-1),
     pinned: true,
   },
