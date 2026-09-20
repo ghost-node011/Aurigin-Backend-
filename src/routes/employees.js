@@ -12,6 +12,7 @@ import {
 import { emptyLeaveBalances, buildOnboardingTasks, DEPARTMENT_COLOR } from "../lib/constants.js";
 import { hashPassword, generateTempPassword } from "../lib/auth.js";
 import { requireRole } from "../middleware/auth.js";
+import { getSettings } from "../models/Settings.js";
 
 export const employeesRouter = Router();
 
@@ -19,9 +20,9 @@ export const employeesRouter = Router();
 // the joining date on every read rather than incremented by a scheduled
 // job — there's nothing to drift or catch up on if the app sits idle.
 employeesRouter.get("/", async (_req, res) => {
-  const employees = await Employee.find().sort({ createdAt: 1 });
+  const [employees, settings] = await Promise.all([Employee.find().sort({ createdAt: 1 }), getSettings()]);
   res.json(
-    employees.map((e) => ({ ...e.toJSON(), leaveBalances: accruedLeaveBalances(e) })),
+    employees.map((e) => ({ ...e.toJSON(), leaveBalances: accruedLeaveBalances(e, undefined, settings) })),
   );
 });
 
@@ -50,7 +51,7 @@ employeesRouter.post("/", requireRole("admin", "hr"), async (req, res) => {
     status: "Onboarding",
     dateOfJoining: dateOfJoining || todayISO(),
     employmentStatus: "Probation",
-    probationEndDate: defaultProbationEnd(dateOfJoining || todayISO()),
+    probationEndDate: defaultProbationEnd(dateOfJoining || todayISO(), await getSettings()),
     leaveBalances: emptyLeaveBalances(),
     color: DEPARTMENT_COLOR[department] ?? "#013fd2",
   });
@@ -83,7 +84,7 @@ employeesRouter.patch("/:id/probation", requireRole("admin", "hr"), async (req, 
     return res.status(400).json({ error: "probationEndDate must be an ISO date (YYYY-MM-DD)" });
   }
 
-  const employee = await Employee.findById(req.params.id);
+  const [employee, settings] = await Promise.all([Employee.findById(req.params.id), getSettings()]);
   if (!employee) return res.status(404).json({ error: "Employee not found" });
 
   employee.employmentStatus = employmentStatus;
@@ -92,9 +93,9 @@ employeesRouter.patch("/:id/probation", requireRole("admin", "hr"), async (req, 
     employee.probationEndDate = probationEndDate ?? employee.probationEndDate;
   } else {
     employee.confirmedOn = null;
-    employee.probationEndDate = probationEndDate ?? defaultProbationEnd(employee.dateOfJoining);
+    employee.probationEndDate = probationEndDate ?? defaultProbationEnd(employee.dateOfJoining, settings);
   }
   await employee.save();
 
-  res.json({ ...employee.toJSON(), leaveBalances: accruedLeaveBalances(employee) });
+  res.json({ ...employee.toJSON(), leaveBalances: accruedLeaveBalances(employee, undefined, settings) });
 });

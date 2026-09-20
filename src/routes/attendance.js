@@ -4,13 +4,8 @@ import { todayISO, nowTime, nowMinutes, monthBounds } from "../lib/helpers.js";
 import { requireSelf } from "../middleware/auth.js";
 import { Employee } from "../models/Employee.js";
 import { probationWfhBlock } from "../lib/wfh.js";
-import {
-  CHECK_IN_BY_MINUTES,
-  CHECK_OUT_FROM_MINUTES,
-  EMERGENCY_EXCEPTIONS_PER_MONTH,
-  CHECK_IN_BY_LABEL,
-  CHECK_OUT_FROM_LABEL,
-} from "../lib/constants.js";
+import { minutesToLabel } from "../lib/constants.js";
+import { getSettings } from "../models/Settings.js";
 
 export const attendanceRouter = Router();
 
@@ -27,6 +22,7 @@ attendanceRouter.get("/", async (_req, res) => {
 async function checkInToday(employeeId, status) {
   const date = todayISO();
   const minutes = nowMinutes();
+  const { checkInByMinutes } = await getSettings();
   return AttendanceRecord.findOneAndUpdate(
     { employeeId, date },
     {
@@ -34,7 +30,7 @@ async function checkInToday(employeeId, status) {
         status,
         checkIn: nowTime(),
         checkInMinutes: minutes,
-        lateCheckIn: minutes > CHECK_IN_BY_MINUTES,
+        lateCheckIn: minutes > checkInByMinutes,
       },
       $setOnInsert: { employeeId, date, checkOut: null, checkOutMinutes: null, hours: 0 },
     },
@@ -69,9 +65,10 @@ attendanceRouter.post("/check-out", requireSelf("employeeId"), async (req, res) 
   if (!record) return res.status(404).json({ error: "No attendance record for today" });
 
   const minutes = nowMinutes();
+  const { checkOutFromMinutes } = await getSettings();
   record.checkOut = nowTime();
   record.checkOutMinutes = minutes;
-  record.earlyCheckOut = minutes < CHECK_OUT_FROM_MINUTES;
+  record.earlyCheckOut = minutes < checkOutFromMinutes;
   record.hours =
     record.checkInMinutes != null ? Math.round(((minutes - record.checkInMinutes) / 60) * 10) / 10 : record.hours;
   await record.save();
@@ -97,15 +94,17 @@ attendanceRouter.post("/emergency", requireSelf("employeeId"), async (req, res) 
   }
   if (record.emergency) return res.json(record);
 
+  const settings = await getSettings();
+  const allowance = settings.emergencyExceptionsPerMonth;
   const { start, end } = monthBounds(day);
   const used = await AttendanceRecord.countDocuments({
     employeeId,
     emergency: true,
     date: { $gte: start, $lte: end },
   });
-  if (used >= EMERGENCY_EXCEPTIONS_PER_MONTH) {
+  if (used >= allowance) {
     return res.status(400).json({
-      error: `You have already used all ${EMERGENCY_EXCEPTIONS_PER_MONTH} emergency exceptions this month. Working hours are check-in by ${CHECK_IN_BY_LABEL} and check-out from ${CHECK_OUT_FROM_LABEL}.`,
+      error: `You have already used all ${allowance} emergency exception(s) this month. Working hours are check-in by ${minutesToLabel(settings.checkInByMinutes)} and check-out from ${minutesToLabel(settings.checkOutFromMinutes)}.`,
     });
   }
 

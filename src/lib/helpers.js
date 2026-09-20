@@ -1,4 +1,4 @@
-import { LEAVE_YEAR_START_MONTH, LEAVE_TYPE_ACCRUAL, PROBATION_MONTHS } from "./constants.js";
+import { DEFAULT_SETTINGS } from "./constants.js";
 
 export function slugify(name) {
   return name
@@ -71,10 +71,11 @@ export function nowMinutes() {
 // accrual restarts each leave year on 1 April.
 
 /** ISO date of the 1 April that opens the leave year containing `iso`. */
-export function leaveYearStart(iso) {
+export function leaveYearStart(iso, settings = DEFAULT_SETTINGS) {
+  const startMonth = settings.leaveYearStartMonth;
   const d = new Date(iso + "T00:00:00");
-  const year = d.getMonth() + 1 >= LEAVE_YEAR_START_MONTH ? d.getFullYear() : d.getFullYear() - 1;
-  return `${year}-04-01`;
+  const year = d.getMonth() + 1 >= startMonth ? d.getFullYear() : d.getFullYear() - 1;
+  return `${year}-${String(startMonth).padStart(2, "0")}-01`;
 }
 
 /**
@@ -82,8 +83,9 @@ export function leaveYearStart(iso) {
  * whichever is later of their joining date and the leave-year start, up to
  * `asOf`, counting the starting month itself. Clamped to 1..12.
  */
-export function accrualMonths(dateOfJoining, asOf = todayISO()) {
-  const from = dateOfJoining > leaveYearStart(asOf) ? dateOfJoining : leaveYearStart(asOf);
+export function accrualMonths(dateOfJoining, asOf = todayISO(), settings = DEFAULT_SETTINGS) {
+  const yearStart = leaveYearStart(asOf, settings);
+  const from = dateOfJoining > yearStart ? dateOfJoining : yearStart;
   if (from > asOf) return 0;
   const a = new Date(from + "T00:00:00");
   const b = new Date(asOf + "T00:00:00");
@@ -100,10 +102,10 @@ function round1(n) {
  * Recomputes each leave type's `quota` as the amount accrued so far, capped
  * at the handbook's annual ceiling. `used` is left untouched.
  */
-export function accruedLeaveBalances(employee, asOf = todayISO()) {
-  const months = accrualMonths(employee.dateOfJoining, asOf);
+export function accruedLeaveBalances(employee, asOf = todayISO(), settings = DEFAULT_SETTINGS) {
+  const months = accrualMonths(employee.dateOfJoining, asOf, settings);
   const balances = {};
-  for (const [type, rule] of Object.entries(LEAVE_TYPE_ACCRUAL)) {
+  for (const [type, rule] of Object.entries(settings.leaveAccrual)) {
     const existing = employee.leaveBalances?.[type];
     balances[type] = {
       quota: round1(Math.min(rule.perMonth * months, rule.annualCap)),
@@ -116,9 +118,9 @@ export function accruedLeaveBalances(employee, asOf = todayISO()) {
 // --- Probation (Handbook §4.5) ---------------------------------------------
 
 /** Default probation end: six months from joining. */
-export function defaultProbationEnd(dateOfJoining) {
+export function defaultProbationEnd(dateOfJoining, settings = DEFAULT_SETTINGS) {
   const d = new Date(dateOfJoining + "T00:00:00");
-  d.setMonth(d.getMonth() + PROBATION_MONTHS);
+  d.setMonth(d.getMonth() + settings.probationMonths);
   return toLocalISO(d);
 }
 

@@ -1,6 +1,6 @@
 import { WfhRequest } from "../models/WfhRequest.js";
 import { AttendanceRecord } from "../models/AttendanceRecord.js";
-import { WFH_PROBATION_MONTHLY_QUOTA } from "./constants.js";
+import { getSettings } from "../models/Settings.js";
 import { monthBounds } from "./helpers.js";
 
 /**
@@ -17,6 +17,11 @@ import { monthBounds } from "./helpers.js";
  */
 export async function probationWfhBlock(employee, date) {
   if (employee.employmentStatus !== "Probation") return null;
+
+  const { wfhProbationMonthlyQuota: quota } = await getSettings();
+  if (quota === 0) {
+    return "Work from home is not available during probation.";
+  }
 
   const { start, end } = monthBounds(date);
   const [requests, marks] = await Promise.all([
@@ -36,7 +41,7 @@ export async function probationWfhBlock(employee, date) {
   // still one day against the allowance.
   const taken = new Set([...requests.map((r) => r.date), ...marks.map((m) => m.date)]);
   taken.delete(date);
-  if (taken.size < WFH_PROBATION_MONTHLY_QUOTA) return null;
+  if (taken.size < quota) return null;
 
-  return `During probation you may work from home ${WFH_PROBATION_MONTHLY_QUOTA} day(s) per month; you have already used ${taken.size} this month.`;
+  return `During probation you may work from home ${quota} day(s) per month; you have already used ${taken.size} this month.`;
 }

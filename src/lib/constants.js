@@ -7,23 +7,32 @@ export const DEPARTMENT_COLOR = {
   hr: "#be3a0a",
 };
 
-// Employee Handbook §6.3 — the leave year runs 1 April to 31 March.
-export const LEAVE_YEAR_START_MONTH = 4;
-
-// Handbook §6.5–6.7 entitlements, credited month by month as they are
-// earned rather than handed over as a full-year bucket on day one. Earned
-// Leave is already defined per calendar month by the handbook (1.5/month);
-// Casual and Sick are stated per leave year, so they accrue at a twelfth of
-// that each month. `annualCap` is the handbook's yearly ceiling — accrual
-// never exceeds it, so a full year of service lands exactly on the
-// handbook number.
-export const LEAVE_TYPE_ACCRUAL = {
-  earned: { perMonth: 1.5, annualCap: 18 },
-  casual: { perMonth: 7 / 12, annualCap: 7 },
-  sick: { perMonth: 7 / 12, annualCap: 7 },
+// Default policy settings — the values a fresh install starts from, and
+// the fallback when the Settings document is unavailable. HR/admin edit
+// the live values through /api/settings; nothing here is read directly by
+// the rules any more, so changing a number in this file only affects new
+// installs, not a running company.
+//
+// Handbook references: §6.3 leave year, §6.5–6.7 entitlements,
+// §4.5 probation, §6.4 leave during probation, §1.13 remote work,
+// §1.12 working hours.
+export const DEFAULT_SETTINGS = {
+  leaveYearStartMonth: 4, // 1 April
+  leaveAccrual: {
+    earned: { perMonth: 1.5, annualCap: 18 },
+    casual: { perMonth: 7 / 12, annualCap: 7 },
+    sick: { perMonth: 7 / 12, annualCap: 7 },
+  },
+  probationMonths: 6,
+  leaveAllowedDuringProbation: false,
+  wfhWeeklyQuota: 2,
+  wfhProbationMonthlyQuota: 2,
+  checkInByMinutes: 11 * 60, // 11:00
+  checkOutFromMinutes: 18 * 60, // 18:00
+  emergencyExceptionsPerMonth: 2,
 };
 
-export const LEAVE_TYPES = Object.keys(LEAVE_TYPE_ACCRUAL);
+export const LEAVE_TYPES = Object.keys(DEFAULT_SETTINGS.leaveAccrual);
 
 export function emptyLeaveBalances() {
   return {
@@ -33,15 +42,14 @@ export function emptyLeaveBalances() {
   };
 }
 
-// Handbook §4.5 — probation is six months unless the appointment letter
-// says otherwise.
-export const PROBATION_MONTHS = 6;
-
-// Handbook §1.13 — remote work is an arrangement, not an entitlement.
-// Confirmed employees get a weekly allowance; employees still on probation
-// get a tighter monthly one.
-export const WFH_WEEKLY_QUOTA = 2;
-export const WFH_PROBATION_MONTHLY_QUOTA = 2;
+/** Formats minutes past midnight as a display time, e.g. 660 -> "11:00 AM". */
+export function minutesToLabel(minutes) {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, "0")} ${period}`;
+}
 
 export const WELCOME_MEET_TEAM_TITLE = "Meet the team";
 export const WELCOME_POLICIES_TITLE = "Read & acknowledge company policies";
@@ -64,20 +72,3 @@ export const ONBOARDING_TASK_TEMPLATE = [
 export function buildOnboardingTasks(newHireId) {
   return ONBOARDING_TASK_TEMPLATE.map((task) => ({ ...task, newHireId, status: "Pending" }));
 }
-
-// --- Attendance punctuality -------------------------------------------------
-// The handbook (§1.12) states working hours of 10:00–19:00; the rule the
-// company actually enforces is a check-in deadline and a check-out floor,
-// with a small monthly allowance for genuine emergencies.
-//
-// Stored as minutes past local midnight so they can be compared directly
-// against a recorded time, rather than parsing display strings.
-export const CHECK_IN_BY_MINUTES = 11 * 60; // 11:00
-export const CHECK_OUT_FROM_MINUTES = 18 * 60; // 18:00
-
-// Days per calendar month on which an employee may excuse a late check-in
-// or an early check-out.
-export const EMERGENCY_EXCEPTIONS_PER_MONTH = 2;
-
-export const CHECK_IN_BY_LABEL = "11:00 AM";
-export const CHECK_OUT_FROM_LABEL = "6:00 PM";

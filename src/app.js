@@ -9,6 +9,7 @@ import { attendanceRouter } from "./routes/attendance.js";
 import { onboardingRouter } from "./routes/onboarding.js";
 import { kudosRouter } from "./routes/kudos.js";
 import { announcementsRouter } from "./routes/announcements.js";
+import { settingsRouter } from "./routes/settings.js";
 import { requireAuth } from "./middleware/auth.js";
 
 export const app = express();
@@ -39,6 +40,7 @@ app.use("/api/attendance", attendanceRouter);
 app.use("/api/onboarding-tasks", onboardingRouter);
 app.use("/api/kudos", kudosRouter);
 app.use("/api/announcements", announcementsRouter);
+app.use("/api/settings", settingsRouter);
 
 app.use((err, _req, res, _next) => {
   console.error(err);
