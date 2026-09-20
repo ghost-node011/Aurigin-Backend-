@@ -22,7 +22,7 @@ attendanceRouter.get("/", async (_req, res) => {
 async function checkInToday(employeeId, status) {
   const date = todayISO();
   const minutes = nowMinutes();
-  const { checkInByMinutes } = await getSettings();
+  const { checkInByMinutes, enforceLateCheckIn } = await getSettings();
   return AttendanceRecord.findOneAndUpdate(
     { employeeId, date },
     {
@@ -30,7 +30,9 @@ async function checkInToday(employeeId, status) {
         status,
         checkIn: nowTime(),
         checkInMinutes: minutes,
-        lateCheckIn: minutes > checkInByMinutes,
+        // Arriving late is recorded but not held against anyone unless the
+        // company explicitly turns that on.
+        lateCheckIn: enforceLateCheckIn && minutes > checkInByMinutes,
       },
       $setOnInsert: { employeeId, date, checkOut: null, checkOutMinutes: null, hours: 0 },
     },
@@ -90,7 +92,7 @@ attendanceRouter.post("/emergency", requireSelf("employeeId"), async (req, res) 
   const record = await AttendanceRecord.findOne({ employeeId, date: day });
   if (!record) return res.status(404).json({ error: `No attendance record for ${day}` });
   if (!record.lateCheckIn && !record.earlyCheckOut) {
-    return res.status(400).json({ error: `Nothing to excuse on ${day} — check-in and check-out were both within hours.` });
+    return res.status(400).json({ error: `Nothing to excuse on ${day} — you worked the full day.` });
   }
   if (record.emergency) return res.json(record);
 

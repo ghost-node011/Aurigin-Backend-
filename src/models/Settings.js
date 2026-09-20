@@ -49,9 +49,13 @@ const settingsSchema = new mongoose.Schema(
       max: 31,
     },
 
-    // Working hours, as minutes past local midnight.
+    // Office hours, as minutes past local midnight.
     checkInByMinutes: { type: Number, default: DEFAULT_SETTINGS.checkInByMinutes, min: 0, max: 1439 },
     checkOutFromMinutes: { type: Number, default: DEFAULT_SETTINGS.checkOutFromMinutes, min: 0, max: 1439 },
+
+    // Off by default: a late arrival is recorded but raises no flag and
+    // costs no exception. Leaving early is what's enforced.
+    enforceLateCheckIn: { type: Boolean, default: DEFAULT_SETTINGS.enforceLateCheckIn },
     emergencyExceptionsPerMonth: {
       type: Number,
       default: DEFAULT_SETTINGS.emergencyExceptionsPerMonth,

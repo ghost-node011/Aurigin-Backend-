@@ -1,10 +1,12 @@
+// Avatar/chart colours per department, drawn around the brand cobalt and
+// gold so a directory full of avatars still reads as one palette.
 export const DEPARTMENT_COLOR = {
-  leadership: "#013fd2",
-  engineering: "#0e7490",
-  design: "#be185d",
-  marketing: "#15803d",
-  sales: "#b91c1c",
-  hr: "#be3a0a",
+  leadership: "#114fd4",
+  engineering: "#0e6f9e",
+  design: "#7b3fc4",
+  marketing: "#12794a",
+  sales: "#b91c30",
+  hr: "#c98209",
 };
 
 // Default policy settings — the values a fresh install starts from, and
@@ -27,8 +29,15 @@ export const DEFAULT_SETTINGS = {
   leaveAllowedDuringProbation: false,
   wfhWeeklyQuota: 2,
   wfhProbationMonthlyQuota: 2,
-  checkInByMinutes: 11 * 60, // 11:00
-  checkOutFromMinutes: 18 * 60, // 18:00
+
+  // Office hours are 10:30–18:30. Arriving after the start time is
+  // recorded but not held against anyone — `enforceLateCheckIn` is off by
+  // default, so a late arrival raises no flag and costs no exception.
+  // Leaving before the end time is the thing that's actually controlled,
+  // and that's what the monthly emergency exceptions are for.
+  checkInByMinutes: 10 * 60 + 30, // 10:30
+  checkOutFromMinutes: 18 * 60 + 30, // 18:30
+  enforceLateCheckIn: false,
   emergencyExceptionsPerMonth: 2,
 };
 

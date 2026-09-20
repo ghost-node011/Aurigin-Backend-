@@ -41,8 +41,8 @@ settingsRouter.patch("/", requireRole("admin", "hr"), async (req, res) => {
     settings[field] = value;
   }
 
-  if (body.leaveAllowedDuringProbation !== undefined) {
-    settings.leaveAllowedDuringProbation = Boolean(body.leaveAllowedDuringProbation);
+  for (const flag of ["leaveAllowedDuringProbation", "enforceLateCheckIn"]) {
+    if (body[flag] !== undefined) settings[flag] = Boolean(body[flag]);
   }
 
   if (body.leaveAccrual) {
