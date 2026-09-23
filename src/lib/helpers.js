@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS } from "./constants.js";
+import { DEFAULT_SETTINGS, LEAVE_RULES } from "./constants.js";
 
 export function slugify(name) {
   return name
@@ -65,10 +65,16 @@ export function nowMinutes() {
   const d = new Date();
   return d.getHours() * 60 + d.getMinutes();
 }
-// --- Leave accrual (Handbook §6.3–6.7) -------------------------------------
-// Entitlements are earned monthly, not granted as a yearly lump. A joiner is
-// credited for the month they join (their first month counts in full), and
-// accrual restarts each leave year on 1 April.
+// --- Leave balances (Handbook §6.3–6.8) ------------------------------------
+// Accrued types are earned monthly, not granted as a yearly lump: a joiner
+// is credited for the month they join (their first month counts in full),
+// and accrual restarts each leave year on 1 April. Fixed allowances
+// (optional holiday, marriage, paternity, LWP) are available in full from
+// the start of the year.
+//
+// Nothing is stored: `used` is the approved leave that starts inside the
+// leave year, so balances reset on 1 April without a scheduled job, and
+// earned leave carries forward by replaying the earlier years.
 
 /** ISO date of the 1 April that opens the leave year containing `iso`. */
 export function leaveYearStart(iso, settings = DEFAULT_SETTINGS) {
@@ -76,6 +82,18 @@ export function leaveYearStart(iso, settings = DEFAULT_SETTINGS) {
   const d = new Date(iso + "T00:00:00");
   const year = d.getMonth() + 1 >= startMonth ? d.getFullYear() : d.getFullYear() - 1;
   return `${year}-${String(startMonth).padStart(2, "0")}-01`;
+}
+
+/** The leave-year start one year after `yearStart`. */
+function nextLeaveYear(yearStart) {
+  return `${Number(yearStart.slice(0, 4)) + 1}${yearStart.slice(4)}`;
+}
+
+/** The last day before `nextYearStart`. */
+function dayBefore(iso) {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() - 1);
+  return toLocalISO(d);
 }
 
 /**
@@ -98,20 +116,62 @@ function round1(n) {
   return Math.round(n * 10) / 10;
 }
 
+/** Approved days of `type` whose leave starts within [from, to]. */
+function usedBetween(requests, type, from, to) {
+  return requests
+    .filter((r) => r.type === type && r.status === "Approved" && r.startDate >= from && r.startDate <= to)
+    .reduce((sum, r) => sum + r.days, 0);
+}
+
 /**
- * Recomputes each leave type's `quota` as the amount accrued so far, capped
- * at the handbook's annual ceiling. `used` is left untouched.
+ * Earned leave brought into the leave year starting `yearStart` (§6.5):
+ * each earlier year's unused balance, up to 10 days, rolls into the next,
+ * and the running balance never exceeds 30.
  */
-export function accruedLeaveBalances(employee, asOf = todayISO(), settings = DEFAULT_SETTINGS) {
+function earnedCarriedInto(employee, requests, yearStart, settings) {
+  const rule = settings.leaveAccrual.earned;
+  const { carryForward, maxBalance } = LEAVE_RULES.earned;
+  let year = leaveYearStart(employee.dateOfJoining, settings);
+  let carried = 0;
+  while (year < yearStart) {
+    const lastDay = dayBefore(nextLeaveYear(year));
+    const accrued = Math.min(rule.perMonth * accrualMonths(employee.dateOfJoining, lastDay, settings), rule.annualCap);
+    const left = Math.min(carried + accrued, maxBalance) - usedBetween(requests, "earned", year, lastDay);
+    carried = Math.min(Math.max(left, 0), carryForward);
+    year = nextLeaveYear(year);
+  }
+  return carried;
+}
+
+/**
+ * Every leave type's balance for the leave year containing `asOf`:
+ * `quota` is what's available this year (accrued to date, or the fixed
+ * allowance), `used` the approved days. Earned leave also reports
+ * `carriedForward`, which is already included in its quota.
+ *
+ * `requests` are the employee's leave requests; only approved ones count.
+ */
+export function leaveBalances(employee, requests, asOf = todayISO(), settings = DEFAULT_SETTINGS) {
+  const yearStart = leaveYearStart(asOf, settings);
+  const yearEnd = dayBefore(nextLeaveYear(yearStart));
+  const joined = employee.dateOfJoining <= asOf;
   const months = accrualMonths(employee.dateOfJoining, asOf, settings);
   const balances = {};
+
   for (const [type, rule] of Object.entries(settings.leaveAccrual)) {
-    const existing = employee.leaveBalances?.[type];
     balances[type] = {
       quota: round1(Math.min(rule.perMonth * months, rule.annualCap)),
-      used: existing?.used ?? 0,
+      used: usedBetween(requests, type, yearStart, yearEnd),
     };
   }
+  for (const [type, days] of Object.entries(settings.leaveAllowances)) {
+    balances[type] = { quota: joined ? days : 0, used: usedBetween(requests, type, yearStart, yearEnd) };
+  }
+
+  const carriedForward = earnedCarriedInto(employee, requests, yearStart, settings);
+  balances.earned.quota = round1(Math.min(balances.earned.quota + carriedForward, LEAVE_RULES.earned.maxBalance));
+  balances.earned.carriedForward = round1(carriedForward);
+
   return balances;
 }
 

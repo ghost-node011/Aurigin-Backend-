@@ -14,14 +14,13 @@ import { AttendanceRecord } from "./models/AttendanceRecord.js";
 import { OnboardingTask } from "./models/OnboardingTask.js";
 import { Kudos } from "./models/Kudos.js";
 import { Announcement } from "./models/Announcement.js";
-import { emptyLeaveBalances } from "./lib/constants.js";
 import { defaultProbationEnd } from "./lib/helpers.js";
 import { hashPassword, generateTempPassword } from "./lib/auth.js";
 
 // `employmentStatus` follows Handbook §4.5: everyone starts on probation
 // and is confirmed by an explicit HR action. Arjun and HR are already
 // confirmed; anyone whose six months aren't up is left on probation, which
-// is what gates leave (§6.4) and tightens the WFH allowance (§1.13).
+// is what gates leave (§6.4).
 const SEED_EMPLOYEES = [
   {
     id: "arjun",
@@ -94,9 +93,6 @@ async function seed() {
       _id: e.id,
       ...e,
       phone: "",
-      // Quotas are recomputed from the joining date on every read, so the
-      // stored balances only need to carry `used`.
-      leaveBalances: emptyLeaveBalances(),
       probationEndDate: e.employmentStatus === "Probation" ? defaultProbationEnd(e.dateOfJoining) : null,
       confirmedOn: e.employmentStatus === "Confirmed" ? e.dateOfJoining : null,
       passwordHash: await hashPassword(tempPassword),

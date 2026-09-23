@@ -27,11 +27,20 @@ const settingsSchema = new mongoose.Schema(
     // Handbook §6.3 — the month the leave year opens (4 = April).
     leaveYearStartMonth: { type: Number, default: DEFAULT_SETTINGS.leaveYearStartMonth, min: 1, max: 12 },
 
-    // Handbook §6.5–6.7 — accrued monthly, capped at the annual figure.
+    // Handbook §6.5–6.8 — accrued monthly, capped at the annual figure.
     leaveAccrual: {
       casual: { type: leaveRuleSchema, default: () => DEFAULT_SETTINGS.leaveAccrual.casual },
       sick: { type: leaveRuleSchema, default: () => DEFAULT_SETTINGS.leaveAccrual.sick },
       earned: { type: leaveRuleSchema, default: () => DEFAULT_SETTINGS.leaveAccrual.earned },
+      menstrual: { type: leaveRuleSchema, default: () => DEFAULT_SETTINGS.leaveAccrual.menstrual },
+    },
+
+    // Handbook §6 leave table — days available in full each leave year.
+    leaveAllowances: {
+      optional: { type: Number, default: DEFAULT_SETTINGS.leaveAllowances.optional, min: 0, max: 365 },
+      marriage: { type: Number, default: DEFAULT_SETTINGS.leaveAllowances.marriage, min: 0, max: 365 },
+      paternity: { type: Number, default: DEFAULT_SETTINGS.leaveAllowances.paternity, min: 0, max: 365 },
+      lwp: { type: Number, default: DEFAULT_SETTINGS.leaveAllowances.lwp, min: 0, max: 365 },
     },
 
     // Handbook §4.5 — default probation length in months.
@@ -40,21 +49,13 @@ const settingsSchema = new mongoose.Schema(
     // Handbook §6.4 — whether leave can be availed while on probation.
     leaveAllowedDuringProbation: { type: Boolean, default: DEFAULT_SETTINGS.leaveAllowedDuringProbation },
 
-    // Handbook §1.13 — work-from-home allowances.
-    wfhWeeklyQuota: { type: Number, default: DEFAULT_SETTINGS.wfhWeeklyQuota, min: 0, max: 7 },
-    wfhProbationMonthlyQuota: {
-      type: Number,
-      default: DEFAULT_SETTINGS.wfhProbationMonthlyQuota,
-      min: 0,
-      max: 31,
-    },
-
-    // Office hours, as minutes past local midnight.
+    // Handbook §1.12 — office hours, as minutes past local midnight.
     checkInByMinutes: { type: Number, default: DEFAULT_SETTINGS.checkInByMinutes, min: 0, max: 1439 },
     checkOutFromMinutes: { type: Number, default: DEFAULT_SETTINGS.checkOutFromMinutes, min: 0, max: 1439 },
 
-    // Off by default: a late arrival is recorded but raises no flag and
-    // costs no exception. Leaving early is what's enforced.
+    // Company rules on top of the handbook's hours. Off by default: a late
+    // arrival is recorded but raises no flag and costs no exception.
+    // Leaving early is what's enforced.
     enforceLateCheckIn: { type: Boolean, default: DEFAULT_SETTINGS.enforceLateCheckIn },
     emergencyExceptionsPerMonth: {
       type: Number,

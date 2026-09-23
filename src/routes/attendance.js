@@ -3,7 +3,6 @@ import { AttendanceRecord } from "../models/AttendanceRecord.js";
 import { todayISO, nowTime, nowMinutes, monthBounds } from "../lib/helpers.js";
 import { requireSelf } from "../middleware/auth.js";
 import { Employee } from "../models/Employee.js";
-import { probationWfhBlock } from "../lib/wfh.js";
 import { minutesToLabel } from "../lib/constants.js";
 import { getSettings } from "../models/Settings.js";
 
@@ -50,11 +49,6 @@ attendanceRouter.post("/wfh", requireSelf("employeeId"), async (req, res) => {
   const { employeeId } = req.body;
   const employee = await Employee.findById(employeeId);
   if (!employee) return res.status(404).json({ error: "Employee not found" });
-
-  // Same allowance as raising a WFH request — otherwise marking WFH here
-  // would be a way straight past it.
-  const blocked = await probationWfhBlock(employee, todayISO());
-  if (blocked) return res.status(400).json({ error: blocked });
 
   const record = await checkInToday(employeeId, "WFH");
   res.json(record);

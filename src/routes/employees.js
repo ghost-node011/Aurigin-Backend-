@@ -6,23 +6,32 @@ import {
   uniqueEmployeeId,
   uniqueEmail,
   todayISO,
-  accruedLeaveBalances,
+  leaveBalances,
   defaultProbationEnd,
 } from "../lib/helpers.js";
-import { emptyLeaveBalances, buildOnboardingTasks, DEPARTMENT_COLOR } from "../lib/constants.js";
+import { buildOnboardingTasks, DEPARTMENT_COLOR } from "../lib/constants.js";
+import { LeaveRequest } from "../models/LeaveRequest.js";
 import { hashPassword, generateTempPassword } from "../lib/auth.js";
 import { requireRole } from "../middleware/auth.js";
 import { getSettings } from "../models/Settings.js";
 
 export const employeesRouter = Router();
 
-// Leave is earned monthly (Handbook §6.5–6.7), so `quota` is derived from
-// the joining date on every read rather than incremented by a scheduled
-// job — there's nothing to drift or catch up on if the app sits idle.
+// Leave is earned monthly (Handbook §6.5–6.8), so balances are derived
+// from the joining date and approved requests on every read rather than
+// maintained by a scheduled job — there's nothing to drift or catch up on
+// if the app sits idle, and the leave year rolls over on its own.
 employeesRouter.get("/", async (_req, res) => {
-  const [employees, settings] = await Promise.all([Employee.find().sort({ createdAt: 1 }), getSettings()]);
+  const [employees, settings, requests] = await Promise.all([
+    Employee.find().sort({ createdAt: 1 }),
+    getSettings(),
+    LeaveRequest.find({ status: "Approved" }),
+  ]);
   res.json(
-    employees.map((e) => ({ ...e.toJSON(), leaveBalances: accruedLeaveBalances(e, undefined, settings) })),
+    employees.map((e) => ({
+      ...e.toJSON(),
+      leaveBalances: leaveBalances(e, requests.filter((r) => r.employeeId === e.id), undefined, settings),
+    })),
   );
 });
 
@@ -52,7 +61,6 @@ employeesRouter.post("/", requireRole("admin", "hr"), async (req, res) => {
     dateOfJoining: dateOfJoining || todayISO(),
     employmentStatus: "Probation",
     probationEndDate: defaultProbationEnd(dateOfJoining || todayISO(), await getSettings()),
-    leaveBalances: emptyLeaveBalances(),
     color: DEPARTMENT_COLOR[department] ?? "#013fd2",
   });
 
@@ -97,5 +105,6 @@ employeesRouter.patch("/:id/probation", requireRole("admin", "hr"), async (req, 
   }
   await employee.save();
 
-  res.json({ ...employee.toJSON(), leaveBalances: accruedLeaveBalances(employee, undefined, settings) });
+  const requests = await LeaveRequest.find({ employeeId: employee.id, status: "Approved" });
+  res.json({ ...employee.toJSON(), leaveBalances: leaveBalances(employee, requests, undefined, settings) });
 });

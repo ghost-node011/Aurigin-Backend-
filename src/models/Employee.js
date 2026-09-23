@@ -1,11 +1,6 @@
 import mongoose from "mongoose";
 import { withIdJSON } from "./plugins.js";
 
-const leaveBalanceEntry = {
-  quota: { type: Number, required: true },
-  used: { type: Number, required: true, default: 0 },
-};
-
 const employeeSchema = new mongoose.Schema(
   {
     // Slug (e.g. "gaurank-sharma") used as the primary key, matching the
@@ -25,20 +20,15 @@ const employeeSchema = new mongoose.Schema(
     status: { type: String, enum: ["Active", "Onboarding"], default: "Active" },
     // Handbook §1.8 / §4.5 — probation is the initial assessment period
     // (six months by default); confirmation is a deliberate HR action, so
-    // this never flips on its own. It gates leave (§6.4) and tightens the
-    // WFH allowance (§1.13), which is why it's separate from `status`
-    // (onboarding vs active) rather than folded into it.
+    // this never flips on its own. It gates leave (§6.4), which is why it's
+    // separate from `status` (onboarding vs active) rather than folded
+    // into it.
     employmentStatus: { type: String, enum: ["Probation", "Confirmed"], default: "Probation" },
     probationEndDate: { type: String, default: null },
     confirmedOn: { type: String, default: null },
     dateOfJoining: { type: String, required: true },
     phone: { type: String, default: "" },
     color: { type: String, default: "#013fd2" },
-    leaveBalances: {
-      casual: leaveBalanceEntry,
-      sick: leaveBalanceEntry,
-      earned: leaveBalanceEntry,
-    },
   },
   { timestamps: true, _id: false },
 );

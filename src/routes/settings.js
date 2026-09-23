@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { Settings, getSettings } from "../models/Settings.js";
 import { requireRole } from "../middleware/auth.js";
-import { minutesToLabel } from "../lib/constants.js";
+import { minutesToLabel, ACCRUED_LEAVE_TYPES, ALLOWANCE_LEAVE_TYPES } from "../lib/constants.js";
 
 export const settingsRouter = Router();
 
@@ -18,8 +18,6 @@ settingsRouter.get("/", async (_req, res) => {
 const NUMERIC_FIELDS = {
   leaveYearStartMonth: { min: 1, max: 12, integer: true },
   probationMonths: { min: 0, max: 24, integer: true },
-  wfhWeeklyQuota: { min: 0, max: 7, integer: true },
-  wfhProbationMonthlyQuota: { min: 0, max: 31, integer: true },
   checkInByMinutes: { min: 0, max: 1439, integer: true },
   checkOutFromMinutes: { min: 0, max: 1439, integer: true },
   emergencyExceptionsPerMonth: { min: 0, max: 31, integer: true },
@@ -46,7 +44,7 @@ settingsRouter.patch("/", requireRole("admin", "hr"), async (req, res) => {
   }
 
   if (body.leaveAccrual) {
-    for (const type of ["casual", "sick", "earned"]) {
+    for (const type of ACCRUED_LEAVE_TYPES) {
       const rule = body.leaveAccrual[type];
       if (!rule) continue;
       const perMonth = Number(rule.perMonth);
@@ -58,6 +56,17 @@ settingsRouter.patch("/", requireRole("admin", "hr"), async (req, res) => {
         return res.status(400).json({ error: `${type}.annualCap must be between 0 and 365` });
       }
       settings.leaveAccrual[type] = { perMonth, annualCap };
+    }
+  }
+
+  if (body.leaveAllowances) {
+    for (const type of ALLOWANCE_LEAVE_TYPES) {
+      if (body.leaveAllowances[type] === undefined) continue;
+      const days = Number(body.leaveAllowances[type]);
+      if (!Number.isFinite(days) || days < 0 || days > 365) {
+        return res.status(400).json({ error: `${type} allowance must be between 0 and 365 days` });
+      }
+      settings.leaveAllowances[type] = days;
     }
   }
 
