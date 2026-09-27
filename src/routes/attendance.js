@@ -5,6 +5,7 @@ import { requireSelf } from "../middleware/auth.js";
 import { Employee } from "../models/Employee.js";
 import { minutesToLabel } from "../lib/constants.js";
 import { getSettings } from "../models/Settings.js";
+import { wfhRequested } from "../lib/notify.js";
 
 export const attendanceRouter = Router();
 
@@ -63,8 +64,16 @@ attendanceRouter.post("/wfh", requireSelf("employeeId"), async (req, res) => {
   const employee = await Employee.findById(employeeId);
   if (!employee) return res.status(404).json({ error: "Employee not found" });
 
+  const alreadyMarked = await AttendanceRecord.exists({ employeeId, date: todayISO(), status: "WFH" });
   const { record, error } = await checkInToday(employeeId, "WFH");
   if (error) return res.status(400).json({ error });
+  // Same-day WFH needs no approval, but the manager should still know.
+  if (!alreadyMarked) {
+    await wfhRequested(
+      { employeeId, date: record.date, approverId: employee.managerId, checkIn: record.checkIn, reason: "" },
+      { sameDay: true },
+    );
+  }
   res.json(record);
 });
 

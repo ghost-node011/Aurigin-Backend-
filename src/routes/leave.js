@@ -5,6 +5,7 @@ import { daysBetweenInclusive, todayISO, leaveBalances, leaveYearStart } from ".
 import { LEAVE_TYPES, LEAVE_LABELS, LEAVE_RULES } from "../lib/constants.js";
 import { requireRole, requireSelf } from "../middleware/auth.js";
 import { getSettings } from "../models/Settings.js";
+import { leaveRequested, leaveDecided } from "../lib/notify.js";
 
 export const leaveRouter = Router();
 
@@ -82,6 +83,7 @@ leaveRouter.post("/", requireSelf("employeeId"), async (req, res) => {
     approverId: employee.managerId ?? null,
   });
 
+  await leaveRequested(request);
   res.status(201).json(request);
 });
 
@@ -118,5 +120,6 @@ leaveRouter.patch("/:id", requireRole("admin", "hr", "manager"), async (req, res
   request.status = status;
   request.approverComment = comment ?? null;
   await request.save();
+  await leaveDecided(request, req.employeeId);
   res.json(request);
 });

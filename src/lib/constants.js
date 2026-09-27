@@ -86,6 +86,17 @@ export const LEAVE_RULES = {
   casual: { noticeDays: 2, longRequestOver: 2, longNoticeDays: 7 },
 };
 
+/** "2026-09-28" -> "Mon, 28 Sep 2026", for emails. */
+export function formatDay(iso) {
+  return new Date(iso + "T00:00:00Z").toLocaleDateString("en-IN", {
+    timeZone: "UTC",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 /** Formats minutes past midnight as a display time, e.g. 660 -> "11:00 AM". */
 export function minutesToLabel(minutes) {
   const h = Math.floor(minutes / 60);

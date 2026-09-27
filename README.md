@@ -37,6 +37,13 @@ to update.
 | Onboarding tasks | `GET /onboarding-tasks`, `PATCH /onboarding-tasks/:id` (`{status}`) |
 | Kudos | `GET /kudos`, `POST /kudos`, `POST /kudos/:id/like` (`{employeeId}`) |
 | Announcements | `GET /announcements`, `POST /announcements` |
+| Projects | `GET /projects`, `POST /projects` (project managers: admins and anyone granted it), `PATCH /projects/:key` (lead or project manager) |
+| Issues | `GET /issues` (`?project&type&status&priority&assignee&reporter&watcher&label&sprint&parent&text&sort`), `GET /issues/labels`, `GET /issues/:keyOrId`, `POST /issues`, `PATCH /issues/:ref`, `DELETE /issues/:ref`, `POST /issues/rank` (`{issueIds, sprintId}`), `POST /issues/:ref/watch`, `POST|DELETE /issues/:ref/links`, `POST|DELETE /issues/:ref/attachments` |
+| Comments | `GET|POST /issues/:ref/comments` (`{body, attachments}` — mentions as `@[Name](id)`), `PATCH|DELETE /comments/:id` |
+| Sprints | `GET /sprints?project=KEY`, `POST /sprints`, `PATCH /sprints/:id`, `POST /sprints/:id/start`, `POST /sprints/:id/complete` (`{moveTo: "backlog" \| "new" \| sprintId}`), `DELETE /sprints/:id` |
+| Saved filters | `GET /filters`, `POST /filters` (`{name, query, shared}`), `DELETE /filters/:id` |
+| Uploads | `GET /uploads/signature` — a signed Cloudinary upload; the browser uploads directly, then attaches the result to an issue or comment |
+| My Day | `GET /work/day` (`?employeeId&date`), `POST /work/day/plan` (`{overview, projectKey?}` — without a project the AI files each task into the right one), `POST /work/day/close` (`{summary}`), `GET /work/performance` (`?employeeId&days`) — viewing someone else needs to be their manager or HR/admin |
 
 `GET /health` returns `{ ok: true }` for uptime checks.
 

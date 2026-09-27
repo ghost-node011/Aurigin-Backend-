@@ -15,6 +15,14 @@ const employeeSchema = new mongoose.Schema(
     title: { type: String, required: true },
     department: { type: String, required: true },
     managerId: { type: String, default: null },
+    // People who oversee this person's work — tickets, day plans and
+    // performance — besides their manager. Admins and the manager are
+    // always included on top of these (see `workReportersFor`), so this only
+    // holds the extras, e.g. a senior developer mentoring a new hire.
+    workReporterIds: { type: [String], default: [] },
+    // May create, edit and archive work projects. Admins always can; this
+    // grants it to others (e.g. a lead developer) without making them admin.
+    canManageProjects: { type: Boolean, default: false },
     location: { type: String, default: "" },
     employmentType: { type: String, default: "Full-time" },
     status: { type: String, enum: ["Active", "Onboarding"], default: "Active" },

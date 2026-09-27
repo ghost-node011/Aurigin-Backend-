@@ -10,6 +10,11 @@ import { onboardingRouter } from "./routes/onboarding.js";
 import { kudosRouter } from "./routes/kudos.js";
 import { announcementsRouter } from "./routes/announcements.js";
 import { settingsRouter } from "./routes/settings.js";
+import { issuesRouter, commentsRouter } from "./routes/issues.js";
+import { projectsRouter } from "./routes/projects.js";
+import { sprintsRouter } from "./routes/sprints.js";
+import { filtersRouter, uploadsRouter } from "./routes/filters.js";
+import { workRouter } from "./routes/work.js";
 import { requireAuth } from "./middleware/auth.js";
 
 export const app = express();
@@ -41,6 +46,13 @@ app.use("/api/onboarding-tasks", onboardingRouter);
 app.use("/api/kudos", kudosRouter);
 app.use("/api/announcements", announcementsRouter);
 app.use("/api/settings", settingsRouter);
+app.use("/api/issues", issuesRouter);
+app.use("/api/comments", commentsRouter);
+app.use("/api/projects", projectsRouter);
+app.use("/api/sprints", sprintsRouter);
+app.use("/api/filters", filtersRouter);
+app.use("/api/uploads", uploadsRouter);
+app.use("/api/work", workRouter);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

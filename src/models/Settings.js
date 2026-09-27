@@ -97,5 +97,10 @@ export const Settings = mongoose.model("Settings", settingsSchema);
 export async function getSettings() {
   const existing = await Settings.findById("company");
   if (existing) return existing;
-  return Settings.create({ _id: "company" });
+  // An atomic upsert: two first requests at once can't both insert.
+  return Settings.findOneAndUpdate(
+    { _id: "company" },
+    { $setOnInsert: { _id: "company" } },
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
+  );
 }

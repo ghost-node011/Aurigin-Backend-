@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
-const TOKEN_TTL = "7d";
+const TOKEN_TTL = "30d";
 
 export function hashPassword(password) {
   return bcrypt.hash(password, 10);

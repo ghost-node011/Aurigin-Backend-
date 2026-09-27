@@ -3,6 +3,7 @@ import { WfhRequest } from "../models/WfhRequest.js";
 import { Employee } from "../models/Employee.js";
 import { todayISO } from "../lib/helpers.js";
 import { requireRole, requireSelf } from "../middleware/auth.js";
+import { wfhRequested, wfhDecided } from "../lib/notify.js";
 
 export const wfhRouter = Router();
 
@@ -29,6 +30,7 @@ wfhRouter.post("/", requireSelf("employeeId"), async (req, res) => {
     approverId: employee.managerId ?? null,
   });
 
+  await wfhRequested(request);
   res.status(201).json(request);
 });
 
@@ -45,5 +47,6 @@ wfhRouter.patch("/:id", requireRole("admin", "hr", "manager"), async (req, res) 
   );
   if (!request) return res.status(404).json({ error: "WFH request not found" });
 
+  await wfhDecided(request, req.employeeId);
   res.json(request);
 });

@@ -36,13 +36,29 @@ employeesRouter.get("/", async (_req, res) => {
 });
 
 employeesRouter.post("/", requireRole("admin", "hr"), async (req, res) => {
-  const { name, title, department, managerId, employmentType, location, dateOfJoining, role } = req.body;
+  const { name, title, department, managerId, employmentType, location, dateOfJoining, role, email: requestedEmail } =
+    req.body;
   if (!name || !title || !department) {
     return res.status(400).json({ error: "name, title, and department are required" });
   }
 
+  // HR may give the company address outright; otherwise one is generated.
+  let email;
+  if (requestedEmail) {
+    email = String(requestedEmail).trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "Invalid email address" });
+    if (await Employee.exists({ email })) return res.status(409).json({ error: `${email} is already in use` });
+  } else {
+    email = await uniqueEmail(name, Employee);
+  }
+
+  const workReporterIds = await validEmployeeIds(req.body.workReporterIds);
+  if (workReporterIds === null) return res.status(400).json({ error: "workReporterIds contains an unknown employee" });
+
+  // Without an explicit manager, new hires report to the administrator.
+  const reportsTo = managerId || (await Employee.findOne({ role: "admin" }).sort({ createdAt: 1 }))?.id || null;
+
   const id = await uniqueEmployeeId(slugify(name), Employee);
-  const email = await uniqueEmail(name, Employee);
   const tempPassword = generateTempPassword();
 
   const employee = await Employee.create({
@@ -54,7 +70,8 @@ employeesRouter.post("/", requireRole("admin", "hr"), async (req, res) => {
     role: role || "employee",
     title,
     department,
-    managerId: managerId || null,
+    managerId: reportsTo,
+    workReporterIds,
     location: location || "",
     employmentType: employmentType || "Full-time",
     status: "Onboarding",
@@ -69,6 +86,40 @@ employeesRouter.post("/", requireRole("admin", "hr"), async (req, res) => {
   // Only time the plaintext temp password exists — the caller (HR/admin)
   // is responsible for relaying it to the new hire out of band.
   res.status(201).json({ ...employee.toJSON(), tempPassword });
+});
+
+/** Unique, existing employee ids from `value`; `[]` when absent, `null` if any is unknown. */
+async function validEmployeeIds(value) {
+  if (value == null) return [];
+  if (!Array.isArray(value)) return null;
+  const ids = [...new Set(value.map(String))];
+  const found = await Employee.countDocuments({ _id: { $in: ids } });
+  return found === ids.length ? ids : null;
+}
+
+/**
+ * Sets who oversees an employee's work besides admins and their manager
+ * (who are always included). HR/admin only.
+ */
+employeesRouter.patch("/:id/work-reporters", requireRole("admin", "hr"), async (req, res) => {
+  const ids = await validEmployeeIds(req.body?.workReporterIds);
+  if (ids === null) return res.status(400).json({ error: "workReporterIds must be a list of existing employee ids" });
+  const employee = await Employee.findById(req.params.id);
+  if (!employee) return res.status(404).json({ error: "Employee not found" });
+  employee.workReporterIds = ids.filter((id) => id !== employee.id);
+  await employee.save();
+  res.json(employee);
+});
+
+/** Grants or removes the permission to manage work projects. Admin only. */
+employeesRouter.patch("/:id/project-manager", requireRole("admin"), async (req, res) => {
+  const employee = await Employee.findByIdAndUpdate(
+    req.params.id,
+    { canManageProjects: Boolean(req.body?.canManageProjects) },
+    { returnDocument: "after" },
+  );
+  if (!employee) return res.status(404).json({ error: "Employee not found" });
+  res.json(employee);
 });
 
 employeesRouter.patch("/:id/complete-onboarding", requireRole("admin", "hr"), async (req, res) => {
