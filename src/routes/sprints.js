@@ -126,7 +126,8 @@ sprintsRouter.post("/:id/complete", async (req, res) => {
     assigneeId: i.assigneeId,
     completedAt: i.status === "Done" ? i.completedAt : null,
   }));
-  await Issue.updateMany({ sprintId: sprint._id, status: { $ne: "Done" } }, { sprintId: target });
+  // Unfinished work lands in the next sprint, or back in the backlog.
+  await Issue.updateMany({ sprintId: sprint._id, status: { $ne: "Done" } }, { sprintId: target, inBacklog: !target });
 
   sprint.state = "closed";
   sprint.completedAt = new Date();
@@ -197,7 +198,7 @@ sprintsRouter.delete("/:id", async (req, res) => {
   const sprint = await loadSprint(req, res);
   if (!sprint) return;
   if (sprint.state !== "future") return res.status(400).json({ error: "Only a sprint that hasn't started can be deleted" });
-  await Issue.updateMany({ sprintId: sprint._id }, { sprintId: null });
+  await Issue.updateMany({ sprintId: sprint._id }, { sprintId: null, inBacklog: true });
   await sprint.deleteOne();
   res.status(204).end();
 });

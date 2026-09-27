@@ -87,6 +87,12 @@ const issueSchema = new mongoose.Schema(
 
     parentId: { type: mongoose.Schema.Types.ObjectId, ref: "Issue", default: null },
     sprintId: { type: mongoose.Schema.Types.ObjectId, ref: "Sprint", default: null },
+    // Parked for later rather than being worked on now. Set when a day
+    // closes with the issue unfinished, when an overview mentions it as
+    // later work or a bug that isn't being fixed today, or by hand; cleared
+    // when it's planned into a day or put in a sprint. Everything else is an
+    // active task.
+    inBacklog: { type: Boolean, default: false },
     // Backlog/sprint ordering — lower comes first.
     rank: { type: Number, default: () => Date.now() },
     links: { type: [linkSchema], default: [] },

@@ -24,14 +24,23 @@ async function ticketsForDay(employeeId, date) {
   return Issue.find({ assigneeId: employeeId, plannedDate: date }).sort({ plannedStart: 1, createdAt: 1 });
 }
 
+/** What every My Day endpoint returns: the plan, today's timeline, and what the day sent to the backlog. */
+async function dayResponse(employeeId, date, plan) {
+  const [tickets, backlog] = await Promise.all([
+    ticketsForDay(employeeId, date),
+    plan?.backlogKeys?.length ? Issue.find({ key: { $in: plan.backlogKeys } }).sort({ createdAt: 1 }) : [],
+  ]);
+  return { date, plan, tickets, backlog };
+}
+
 workRouter.get("/day", async (req, res) => {
   const employeeId = String(req.query.employeeId || req.employeeId);
   const date = String(req.query.date || todayISO());
   if (!(await canViewWorkOf(req.employeeId, req.role, employeeId))) {
     return res.status(403).json({ error: "You can't view this person's work" });
   }
-  const [plan, tickets] = await Promise.all([DayPlan.findOne({ employeeId, date }), ticketsForDay(employeeId, date)]);
-  res.json({ date, plan, tickets });
+  const plan = await DayPlan.findOne({ employeeId, date });
+  res.json(await dayResponse(employeeId, date, plan));
 });
 
 /**
@@ -55,6 +64,10 @@ workRouter.post("/day/plan", async (req, res) => {
     DayPlan.findOne({ employeeId, date }),
   ]);
   if (existing?.closedAt) return res.status(409).json({ error: "Today's day is already closed." });
+  // The day starts at check-in; test accounts can plan any time.
+  if (!employee.policyExempt && !(await AttendanceRecord.exists({ employeeId, date, checkIn: { $ne: null } }))) {
+    return res.status(400).json({ error: "Check in first — My Day starts once you've checked in." });
+  }
 
   const defaultProject = await ensureDefaultProject();
   const projects = await Project.find({ archived: false }).lean();
@@ -81,36 +94,47 @@ workRouter.post("/day/plan", async (req, res) => {
   const reporterIds = await workReportersFor(employee);
   const byKey = new Map(openTickets.map((t) => [t.key, t]));
   const scheduled = [];
+  const backlogged = [];
   for (const task of tasks) {
-    const slot = {
-      plannedDate: date,
-      plannedStart: minutesToHHMM(task.start),
-      plannedEnd: minutesToHHMM(task.end),
-      estimateMinutes: task.end - task.start,
-      remainingMinutes: task.end - task.start,
-    };
+    const today = task.when !== "backlog";
+    // Today's work gets a slot on the timeline and is an active task;
+    // later work and unfixed bugs go to the backlog without one.
+    const placement = today
+      ? {
+          inBacklog: false,
+          plannedDate: date,
+          plannedStart: minutesToHHMM(task.start),
+          plannedEnd: minutesToHHMM(task.end),
+          estimateMinutes: task.end - task.start,
+          remainingMinutes: task.end - task.start,
+        }
+      : { inBacklog: true };
     const carried = task.existingKey && byKey.get(task.existingKey);
     if (carried) {
-      Object.assign(carried, slot);
+      if (!today && carried.inBacklog) continue; // mentioned as still "later": nothing to change
+      Object.assign(carried, placement);
       carried.reporterIds = [...new Set([...carried.reporterIds, ...reporterIds])];
-      carried.activity.push({ by: null, type: "note", text: `Scheduled for ${date}` });
-      scheduled.push(await carried.save());
+      carried.activity.push({ by: null, type: "note", text: today ? `Scheduled for ${date}` : "Moved to the backlog from the morning overview" });
+      (today ? scheduled : backlogged).push(await carried.save());
     } else {
-      scheduled.push(await Issue.create({
+      const issue = await Issue.create({
         key: await newIssueKey(task.projectKey),
         projectKey: task.projectKey,
-        type: "Task",
+        type: task.type ?? "Task",
         title: task.title,
         description: task.description,
         priority: task.priority,
         assigneeId: employeeId,
         reporterIds,
         watcherIds: [employeeId],
-        dueDate: date,
+        dueDate: today ? date : null,
         source: source === "ai" ? "ai" : "manual",
-        ...slot,
-        activity: [{ by: null, type: "created", text: "Created from the morning overview" }],
-      }));
+        ...placement,
+        activity: [
+          { by: null, type: "created", text: today ? "Created from the morning overview" : "Added to the backlog from the morning overview" },
+        ],
+      });
+      (today ? scheduled : backlogged).push(issue);
     }
   }
 
@@ -118,12 +142,13 @@ workRouter.post("/day/plan", async (req, res) => {
   plan.overview = existing?.overview ? `${existing.overview}\n\n${overview}` : overview;
   plan.plannedAt = plan.plannedAt ?? new Date();
   plan.planSource = source;
+  plan.backlogKeys = [...new Set([...plan.backlogKeys, ...backlogged.map((i) => i.key)])];
   await plan.save();
 
   // One digest to their reporters rather than an email per AI-made issue.
   await dayPlanned(employee, scheduled, { added: Boolean(existing?.plannedAt) });
 
-  res.json({ date, plan, tickets: await ticketsForDay(employeeId, date) });
+  res.json(await dayResponse(employeeId, date, plan));
 });
 
 /**
@@ -142,9 +167,8 @@ workRouter.post("/day/close", async (req, res) => {
   if (!plan?.plannedAt) return res.status(400).json({ error: "Plan your day before closing it." });
   if (plan.closedAt) return res.status(409).json({ error: "Today's day is already closed." });
 
-  const [employee, attendance, todays, carried] = await Promise.all([
+  const [employee, todays, carried] = await Promise.all([
     Employee.findById(employeeId),
-    AttendanceRecord.findOne({ employeeId, date }),
     ticketsForDay(employeeId, date),
     Issue.find({
       assigneeId: employeeId,
@@ -153,14 +177,12 @@ workRouter.post("/day/close", async (req, res) => {
     }).limit(20),
   ]);
   const tickets = [...todays, ...carried];
-  const workedMinutes = attendance?.checkInMinutes != null ? nowMinutes() - attendance.checkInMinutes : null;
-
-  const { updates, review, source } = await closeDay({ employee, plan, summary, tickets, workedMinutes });
+  const { updates, review, newItems = [], source } = await closeDay({ employee, plan, summary, tickets });
 
   let minutesLogged = 0;
+  const movedToBacklog = [];
   for (const ticket of tickets) {
-    const u = updates[ticket.key];
-    if (!u) continue;
+    const u = updates[ticket.key] ?? { status: null, minutes: 0, note: "" };
     if (u.status && u.status !== ticket.status) {
       ticket.activity.push({ by: null, type: "status", text: `${ticket.status} → ${u.status} (end-of-day summary)` });
       ticket.status = u.status;
@@ -172,8 +194,40 @@ workRouter.post("/day/close", async (req, res) => {
       minutesLogged += u.minutes;
       ticket.activity.push({ by: null, type: u.minutes > 0 ? "worklog" : "note", text: u.note, minutes: u.minutes });
     }
+    // Unfinished work — including anything the summary didn't mention — goes
+    // to the backlog for another day. "In Review" is finished work waiting on
+    // someone else, so it stays active. Only when the AI read the summary:
+    // without it no status was decided, and everything would be parked.
+    if (source === "ai" && ["To Do", "In Progress", "Blocked"].includes(ticket.status) && !ticket.inBacklog) {
+      ticket.inBacklog = true;
+      movedToBacklog.push(ticket.key);
+      ticket.activity.push({ by: null, type: "note", text: "Not finished today — moved to the backlog" });
+    }
     await ticket.save();
   }
+
+  // Bugs and follow-ups the summary raised become backlog items.
+  const reporterIds = await workReportersFor(employee);
+  const defaultProject = await ensureDefaultProject();
+  const followUps = [];
+  for (const item of newItems) {
+    followUps.push(
+      await Issue.create({
+        key: await newIssueKey(defaultProject.key),
+        projectKey: defaultProject.key,
+        type: item.type,
+        title: item.title,
+        description: item.description,
+        assigneeId: employeeId,
+        reporterIds,
+        watcherIds: [employeeId],
+        inBacklog: true,
+        source: "ai",
+        activity: [{ by: null, type: "created", text: "Added to the backlog from the end-of-day summary" }],
+      }),
+    );
+  }
+  plan.backlogKeys = [...new Set([...plan.backlogKeys, ...movedToBacklog, ...followUps.map((i) => i.key)])];
 
   plan.summary = summary;
   plan.closedAt = new Date();
@@ -187,7 +241,7 @@ workRouter.post("/day/close", async (req, res) => {
   await plan.save();
   await dayClosed(employee, plan, tickets);
 
-  res.json({ date, plan, tickets: await ticketsForDay(employeeId, date) });
+  res.json(await dayResponse(employeeId, date, plan));
 });
 
 /**
@@ -206,7 +260,7 @@ workRouter.post("/day/reopen", async (req, res) => {
   plan.review = null;
   plan.reviewSource = null;
   await plan.save();
-  res.json({ date, plan, tickets: await ticketsForDay(req.employeeId, date) });
+  res.json(await dayResponse(req.employeeId, date, plan));
 });
 
 /** Day-by-day performance history, newest first. */

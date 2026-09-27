@@ -8,7 +8,7 @@ import { withIdJSON } from "./plugins.js";
  */
 const reviewSchema = new mongoose.Schema(
   {
-    score: { type: Number, min: 0, max: 10, default: null },
+    score: { type: Number, min: 0, max: 100, default: null }, // out of 100
     rating: { type: String, default: "" }, // e.g. "Strong", "Steady", "Needs attention"
     completed: { type: Number, default: 0 },
     total: { type: Number, default: 0 },
@@ -33,6 +33,10 @@ const dayPlanSchema = new mongoose.Schema(
     closedAt: { type: Date, default: null },
     reviewSource: { type: String, enum: ["ai", "fallback", null], default: null },
     review: { type: reviewSchema, default: null },
+
+    // Issues this day sent to the backlog — later work from the overview,
+    // unfinished work and follow-ups from the summary.
+    backlogKeys: { type: [String], default: [] },
   },
   { timestamps: true },
 );

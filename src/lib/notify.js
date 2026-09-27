@@ -227,12 +227,12 @@ export function dayClosed(employee, plan, tickets) {
     const review = plan.review ?? {};
     const list = tickets.map((t) => `[${t.status}]  ${t.key}  ${t.title}`).join("\n");
     await sendEach([...byId.values()], (r) => ({
-      subject: `${employee.name} closed their day — ${review.completed ?? 0}/${review.total ?? 0} done${review.score != null ? `, ${review.score}/10` : ""}`,
+      subject: `${employee.name} closed their day — ${review.completed ?? 0}/${review.total ?? 0} done${review.score != null ? `, ${review.score}/100` : ""}`,
       ...renderEmail({
         heading: `${employee.name}'s day in review`,
         intro: `Hi ${firstName(r)}, ${employee.name} wrapped up today.${review.feedback ? ` ${review.feedback}` : ""}`,
         rows: [
-          ["Score", review.score != null ? `${review.score} / 10${review.rating ? ` (${review.rating})` : ""}` : null],
+          ["Score", review.score != null ? `${review.score} / 100${review.rating ? ` (${review.rating})` : ""}` : null],
           ["Tickets done", `${review.completed ?? 0} of ${review.total ?? 0}`],
           ["Time logged", review.minutesLogged ? `${Math.floor(review.minutesLogged / 60)}h ${review.minutesLogged % 60}m` : null],
         ],

@@ -139,11 +139,19 @@ issuesRouter.get("/", async (req, res) => {
   const labels = csv(q.label);
   if (labels.length) filter.labels = { $in: labels };
 
-  if (q.sprint === "backlog") filter.sprintId = null;
+  if (q.sprint === "backlog") {
+    filter.sprintId = null;
+    filter.inBacklog = true;
+  } else if (q.sprint === "none") {
+    filter.sprintId = null;
+    filter.inBacklog = { $ne: true };
+  }
   else if (q.sprint === "active") {
     const active = await Sprint.find({ state: "active", ...(projects.length && { projectKey: { $in: projects } }) }, { _id: 1 });
     filter.sprintId = { $in: active.map((s) => s._id) };
   } else if (q.sprint && mongoose.isValidObjectId(q.sprint)) filter.sprintId = q.sprint;
+  if (q.backlog === "true") filter.inBacklog = true;
+  else if (q.backlog === "false") filter.inBacklog = { $ne: true };
 
   if (q.parent) {
     const parent = await findIssue(q.parent);
@@ -237,6 +245,8 @@ issuesRouter.post("/", async (req, res) => {
     watcherIds: uniq([req.employeeId, assignee?.id, ...mentionIdsIn(body.description)]),
     parentId,
     sprintId,
+    // In a sprint means planned, so never in the backlog at the same time.
+    inBacklog: !sprintId && type !== "Epic" && Boolean(body.inBacklog),
     dueDate: body.dueDate || null,
     estimateMinutes: Math.max(0, Math.round(Number(body.estimateMinutes) || 0)),
     remainingMinutes: body.estimateMinutes ? Math.max(0, Math.round(Number(body.estimateMinutes))) : null,
@@ -347,10 +357,17 @@ async function applyUpdate(req, issue, body) {
     const sprintId = await resolveSprint(body.sprintId, issue.projectKey);
     if (typeof sprintId === "string") return { status: 400, error: sprintId };
     if (String(sprintId) !== String(issue.sprintId)) {
-      log(sprintId ? "Moved to a sprint" : "Moved to the backlog");
+      log(sprintId ? "Moved to a sprint" : "Taken out of the sprint");
       issue.sprintId = sprintId;
+      if (sprintId) issue.inBacklog = false;
       await Issue.updateMany({ parentId: issue._id, type: "Sub-task" }, { sprintId });
     }
+  }
+  // Backlog vs active task (and out of any sprint when parked).
+  if (body.inBacklog !== undefined && issue.type !== "Epic" && Boolean(body.inBacklog) !== issue.inBacklog) {
+    issue.inBacklog = Boolean(body.inBacklog);
+    if (issue.inBacklog && issue.sprintId && body.sprintId === undefined) issue.sprintId = null;
+    log(issue.inBacklog ? "Moved to the backlog" : "Taken out of the backlog — now an active task");
   }
   if (body.rank !== undefined && Number.isFinite(Number(body.rank))) issue.rank = Number(body.rank);
 
@@ -389,7 +406,7 @@ issuesRouter.patch("/:ref", retryOnConflict(async (req, res) => {
   res.json(await expand(issue));
 }));
 
-const BULK_FIELDS = ["status", "priority", "assigneeId", "sprintId", "labels", "dueDate"];
+const BULK_FIELDS = ["status", "priority", "assigneeId", "sprintId", "inBacklog", "labels", "dueDate"];
 
 /**
  * Bulk edit: the same change applied to many issues. Each issue gets the
@@ -420,7 +437,9 @@ issuesRouter.post("/bulk", async (req, res) => {
 
 /** Reorders issues and moves them between the backlog and sprints in one go (backlog drag-and-drop). */
 issuesRouter.post("/rank", async (req, res) => {
-  const { issueIds, sprintId } = req.body ?? {};
+  // `sprintId` moves them into a sprint (or out of one with null);
+  // `inBacklog` parks them in, or takes them out of, the backlog.
+  const { issueIds, sprintId, inBacklog } = req.body ?? {};
   if (!Array.isArray(issueIds) || issueIds.length === 0 || issueIds.length > 500) {
     return res.status(400).json({ error: "issueIds must be a non-empty list" });
   }
@@ -437,6 +456,8 @@ issuesRouter.post("/rank", async (req, res) => {
     issueIds.map(async (id, i) => {
       const update = { rank: base + i * 1000 };
       if (target !== undefined) update.sprintId = target;
+      if (target) update.inBacklog = false;
+      else if (inBacklog !== undefined) update.inBacklog = Boolean(inBacklog);
       await Issue.updateOne({ _id: id }, update);
       if (target !== undefined) await Issue.updateMany({ parentId: id, type: "Sub-task" }, { sprintId: target });
     }),
