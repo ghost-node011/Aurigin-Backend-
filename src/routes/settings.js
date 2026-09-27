@@ -20,6 +20,7 @@ const NUMERIC_FIELDS = {
   probationMonths: { min: 0, max: 24, integer: true },
   checkInByMinutes: { min: 0, max: 1439, integer: true },
   checkOutFromMinutes: { min: 0, max: 1439, integer: true },
+  checkInOpensMinutesBefore: { min: 0, max: 720, integer: true },
   emergencyExceptionsPerMonth: { min: 0, max: 31, integer: true },
 };
 
@@ -37,6 +38,14 @@ settingsRouter.patch("/", requireRole("admin", "hr"), async (req, res) => {
       return res.status(400).json({ error: `${field} must be a whole number` });
     }
     settings[field] = value;
+  }
+
+  if (body.weeklyOffDays !== undefined) {
+    const days = body.weeklyOffDays;
+    if (!Array.isArray(days) || days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
+      return res.status(400).json({ error: "weeklyOffDays must be a list of weekdays 0–6 (0 = Sunday)" });
+    }
+    settings.weeklyOffDays = [...new Set(days)].sort();
   }
 
   for (const flag of ["leaveAllowedDuringProbation", "enforceLateCheckIn"]) {

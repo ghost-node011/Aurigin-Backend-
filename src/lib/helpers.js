@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, LEAVE_RULES } from "./constants.js";
+import { DEFAULT_SETTINGS, LEAVE_RULES, COMPANY_TIMEZONE } from "./constants.js";
 
 export function slugify(name) {
   return name
@@ -46,8 +46,25 @@ export function toLocalISO(date) {
   return `${y}-${m}-${d}`;
 }
 
+// "Now" is always read in the company's timezone, never the server's: the
+// API runs on Vercel in UTC, where an 11:49 check-in in India was being
+// stamped 6:19 am and every cutoff comparison was 5½ hours off.
+function nowInCompanyZone() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: COMPANY_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  const get = (type) => parts.find((p) => p.type === type).value;
+  return { date: `${get("year")}-${get("month")}-${get("day")}`, minutes: Number(get("hour")) * 60 + Number(get("minute")) };
+}
+
 export function todayISO() {
-  return toLocalISO(new Date());
+  return nowInCompanyZone().date;
 }
 
 export function daysBetweenInclusive(startIso, endIso) {
@@ -57,13 +74,17 @@ export function daysBetweenInclusive(startIso, endIso) {
 }
 
 export function nowTime() {
-  return new Date().toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true });
+  return new Date().toLocaleTimeString("en-IN", {
+    timeZone: COMPANY_TIMEZONE,
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
-/** Minutes past local midnight — the comparable form of `nowTime()`. */
+/** Minutes past midnight in the company timezone — the comparable form of `nowTime()`. */
 export function nowMinutes() {
-  const d = new Date();
-  return d.getHours() * 60 + d.getMinutes();
+  return nowInCompanyZone().minutes;
 }
 // --- Leave balances (Handbook §6.3–6.8) ------------------------------------
 // Accrued types are earned monthly, not granted as a yearly lump: a joiner

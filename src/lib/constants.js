@@ -9,6 +9,9 @@ export const DEPARTMENT_COLOR = {
   hr: "#c98209",
 };
 
+// Office hours and "today" are in this timezone wherever the server runs.
+export const COMPANY_TIMEZONE = "Asia/Kolkata";
+
 // Default policy settings — the values a fresh install starts from, and
 // the fallback when the Settings document is unavailable. HR/admin edit
 // the live values through /api/settings; nothing here is read directly by
@@ -48,6 +51,11 @@ export const DEFAULT_SETTINGS = {
   // exceptions are for.
   checkInByMinutes: 10 * 60, // 10:00
   checkOutFromMinutes: 19 * 60, // 19:00
+  // Check-in opens this long before office starts (9:15 for a 10:00 start);
+  // earlier than that is refused, not recorded.
+  checkInOpensMinutesBefore: 45,
+  // Handbook §1.10 — Saturday and Sunday are the weekly holidays (0 = Sunday).
+  weeklyOffDays: [0, 6],
   enforceLateCheckIn: false,
   emergencyExceptionsPerMonth: 2,
 };

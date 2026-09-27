@@ -30,7 +30,7 @@ const SEED_EMPLOYEES = [
     title: "Administrator",
     department: "leadership",
     managerId: null,
-    location: "Remote",
+    location: "Office",
     employmentType: "Full-time",
     status: "Active",
     dateOfJoining: "2026-08-10",

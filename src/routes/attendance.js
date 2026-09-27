@@ -16,13 +16,24 @@ attendanceRouter.get("/", async (_req, res) => {
 /**
  * Opens (or re-opens) today's record. A late check-in is recorded rather
  * than refused — people still need their attendance on file — and the
- * `lateCheckIn` flag is what an emergency exception later clears.
+ * `lateCheckIn` flag is what an emergency exception later clears. Checking
+ * in on a weekly holiday, or before the window opens, is refused outright.
+ *
+ * Returns `{ error }` instead of a record when it's refused.
  */
 async function checkInToday(employeeId, status) {
   const date = todayISO();
   const minutes = nowMinutes();
-  const { checkInByMinutes, enforceLateCheckIn } = await getSettings();
-  return AttendanceRecord.findOneAndUpdate(
+  const { checkInByMinutes, checkInOpensMinutesBefore, enforceLateCheckIn, weeklyOffDays } = await getSettings();
+  const weekday = new Date(date + "T00:00:00Z").getUTCDay();
+  if (weeklyOffDays.includes(weekday)) {
+    return { error: "Today is a weekly holiday — no attendance to mark (Handbook §1.10)." };
+  }
+  const opensAt = checkInByMinutes - checkInOpensMinutesBefore;
+  if (minutes < opensAt) {
+    return { error: `Check-in opens at ${minutesToLabel(opensAt)}. Office starts at ${minutesToLabel(checkInByMinutes)}.` };
+  }
+  const record = await AttendanceRecord.findOneAndUpdate(
     { employeeId, date },
     {
       $set: {
@@ -37,11 +48,13 @@ async function checkInToday(employeeId, status) {
     },
     { new: true, upsert: true },
   );
+  return { record };
 }
 
 attendanceRouter.post("/check-in", requireSelf("employeeId"), async (req, res) => {
   const { employeeId } = req.body;
-  const record = await checkInToday(employeeId, "Present");
+  const { record, error } = await checkInToday(employeeId, "Present");
+  if (error) return res.status(400).json({ error });
   res.json(record);
 });
 
@@ -50,7 +63,8 @@ attendanceRouter.post("/wfh", requireSelf("employeeId"), async (req, res) => {
   const employee = await Employee.findById(employeeId);
   if (!employee) return res.status(404).json({ error: "Employee not found" });
 
-  const record = await checkInToday(employeeId, "WFH");
+  const { record, error } = await checkInToday(employeeId, "WFH");
+  if (error) return res.status(400).json({ error });
   res.json(record);
 });
 

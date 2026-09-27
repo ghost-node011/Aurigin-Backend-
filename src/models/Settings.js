@@ -52,6 +52,16 @@ const settingsSchema = new mongoose.Schema(
     // Handbook §1.12 — office hours, as minutes past local midnight.
     checkInByMinutes: { type: Number, default: DEFAULT_SETTINGS.checkInByMinutes, min: 0, max: 1439 },
     checkOutFromMinutes: { type: Number, default: DEFAULT_SETTINGS.checkOutFromMinutes, min: 0, max: 1439 },
+    // Handbook §1.10 — days of the week with no attendance (0 = Sunday).
+    weeklyOffDays: { type: [Number], default: () => DEFAULT_SETTINGS.weeklyOffDays },
+
+    // How long before office start check-in opens (45 → 9:15 for 10:00).
+    checkInOpensMinutesBefore: {
+      type: Number,
+      default: DEFAULT_SETTINGS.checkInOpensMinutesBefore,
+      min: 0,
+      max: 720,
+    },
 
     // Company rules on top of the handbook's hours. Off by default: a late
     // arrival is recorded but raises no flag and costs no exception.
