@@ -113,10 +113,19 @@ sprintsRouter.post("/:id/complete", async (req, res) => {
     target = next._id;
   }
 
-  const [done, notDone] = await Promise.all([
-    Issue.countDocuments({ sprintId: sprint._id, status: "Done", type: { $ne: "Sub-task" } }),
-    Issue.countDocuments({ sprintId: sprint._id, status: { $ne: "Done" }, type: { $ne: "Sub-task" } }),
-  ]);
+  const inSprint = await Issue.find({ sprintId: sprint._id, type: { $nin: ["Sub-task", "Epic"] } }).lean();
+  const done = inSprint.filter((i) => i.status === "Done").length;
+  const notDone = inSprint.length - done;
+  sprint.snapshot = inSprint.map((i) => ({
+    issueId: i._id,
+    key: i.key,
+    title: i.title,
+    type: i.type,
+    status: i.status,
+    storyPoints: i.storyPoints,
+    assigneeId: i.assigneeId,
+    completedAt: i.status === "Done" ? i.completedAt : null,
+  }));
   await Issue.updateMany({ sprintId: sprint._id, status: { $ne: "Done" } }, { sprintId: target });
 
   sprint.state = "closed";
@@ -126,6 +135,62 @@ sprintsRouter.post("/:id/complete", async (req, res) => {
   await sprint.save();
   res.json({ sprint, movedTo: target });
 });
+
+/**
+ * Sprint report: what was in it, what got done, and a burndown — remaining
+ * work at the end of each day against the ideal straight line. Measured in
+ * story points when the sprint's issues have them, otherwise in issues.
+ * Readable by everyone.
+ */
+sprintsRouter.get("/:id/report", async (req, res) => {
+  const sprint = mongoose.isValidObjectId(req.params.id) ? await Sprint.findById(req.params.id) : null;
+  if (!sprint) return res.status(404).json({ error: "Sprint not found" });
+  if (sprint.state === "future") return res.status(400).json({ error: "This sprint hasn't started" });
+
+  const issues =
+    sprint.state === "closed"
+      ? sprint.snapshot.map((s) => s.toObject())
+      : (await Issue.find({ sprintId: sprint._id, type: { $nin: ["Sub-task", "Epic"] } }).lean()).map((i) => ({
+          issueId: i._id,
+          key: i.key,
+          title: i.title,
+          type: i.type,
+          status: i.status,
+          storyPoints: i.storyPoints,
+          assigneeId: i.assigneeId,
+          completedAt: i.status === "Done" ? i.completedAt : null,
+        }));
+
+  const usePoints = issues.some((i) => i.storyPoints > 0);
+  const size = (i) => (usePoints ? i.storyPoints ?? 0 : 1);
+  const total = issues.reduce((sum, i) => sum + size(i), 0);
+
+  const start = sprint.startDate;
+  const end = sprint.endDate ?? start;
+  const today = todayISO();
+  const days = [];
+  const span = Math.max(1, Math.round((new Date(end) - new Date(start)) / 86_400_000));
+  for (let d = start, n = 0; d <= end; d = addDays(d, 1), n++) {
+    // Days with no actual value yet: after today in an active sprint, or
+    // after the day a sprint was completed early.
+    const future = sprint.state === "active" ? d > today : d > todayOf(sprint.completedAt);
+    const doneBy = issues
+      .filter((i) => i.completedAt && todayOf(i.completedAt) <= d)
+      .reduce((sum, i) => sum + size(i), 0);
+    days.push({
+      date: d,
+      ideal: Math.round((total - (total * n) / span) * 10) / 10,
+      remaining: future ? null : Math.round((total - doneBy) * 10) / 10,
+    });
+  }
+
+  res.json({ sprint, unit: usePoints ? "points" : "issues", total, issues, days });
+});
+
+// A completion timestamp's calendar day in company time.
+function todayOf(date) {
+  return new Date(date).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
 
 /** Deletes a future sprint; its issues go back to the backlog. */
 sprintsRouter.delete("/:id", async (req, res) => {

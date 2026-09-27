@@ -122,6 +122,17 @@ employeesRouter.patch("/:id/project-manager", requireRole("admin"), async (req, 
   res.json(employee);
 });
 
+/** Marks an account as a test account that policy rules don't block. Admin only. */
+employeesRouter.patch("/:id/policy-exempt", requireRole("admin"), async (req, res) => {
+  const employee = await Employee.findByIdAndUpdate(
+    req.params.id,
+    { policyExempt: Boolean(req.body?.policyExempt) },
+    { returnDocument: "after" },
+  );
+  if (!employee) return res.status(404).json({ error: "Employee not found" });
+  res.json(employee);
+});
+
 employeesRouter.patch("/:id/complete-onboarding", requireRole("admin", "hr"), async (req, res) => {
   const employee = await Employee.findByIdAndUpdate(req.params.id, { status: "Active" }, { new: true });
   if (!employee) return res.status(404).json({ error: "Employee not found" });

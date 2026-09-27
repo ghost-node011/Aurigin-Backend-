@@ -190,6 +190,25 @@ workRouter.post("/day/close", async (req, res) => {
   res.json({ date, plan, tickets: await ticketsForDay(employeeId, date) });
 });
 
+/**
+ * Reopens today's closed day so it can be planned and closed again — for
+ * test accounts only, since a real day's review is a record. Tickets keep
+ * whatever the review did to them.
+ */
+workRouter.post("/day/reopen", async (req, res) => {
+  const employee = await Employee.findById(req.employeeId, { policyExempt: 1 }).lean();
+  if (!employee?.policyExempt) return res.status(403).json({ error: "Only test accounts can reopen a day" });
+  const date = todayISO();
+  const plan = await DayPlan.findOne({ employeeId: req.employeeId, date });
+  if (!plan?.closedAt) return res.status(400).json({ error: "Today isn't closed" });
+  plan.closedAt = null;
+  plan.summary = "";
+  plan.review = null;
+  plan.reviewSource = null;
+  await plan.save();
+  res.json({ date, plan, tickets: await ticketsForDay(req.employeeId, date) });
+});
+
 /** Day-by-day performance history, newest first. */
 workRouter.get("/performance", async (req, res) => {
   const employeeId = String(req.query.employeeId || req.employeeId);

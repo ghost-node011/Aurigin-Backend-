@@ -1,5 +1,6 @@
 import { Employee } from "../models/Employee.js";
 import { sendMail, renderEmail, appUrl } from "./mailer.js";
+import { Notification } from "../models/Notification.js";
 import { workReportersFor } from "./workday.js";
 import { formatDay } from "./constants.js";
 
@@ -29,8 +30,25 @@ async function safely(label, fn) {
   }
 }
 
+/**
+ * Delivers one message to one person: an in-app notification (the bell) and
+ * an email. `message` is { subject, ...renderEmail(...) }; the bell shows the
+ * subject, the email's intro and links to the same place the button does.
+ */
+async function deliver(recipient, message) {
+  await Promise.all([
+    Notification.create({
+      recipientId: recipient._id,
+      title: message.subject,
+      body: message.summary ?? "",
+      link: message.link ?? "/",
+    }).catch((err) => console.error("Notification save failed:", err.message)),
+    sendMail({ to: recipient.email, subject: message.subject, html: message.html, text: message.text }),
+  ]);
+}
+
 async function sendEach(recipients, build) {
-  await Promise.all(recipients.map((r) => sendMail({ to: r.email, ...build(r) })));
+  await Promise.all(recipients.map((r) => deliver(r, build(r))));
 }
 
 // --- Issues -------------------------------------------------------------------
@@ -81,8 +99,7 @@ export function issuePeopleAdded(issue, actorId, { assigneeId, reporterIds = [] 
     if (assigneeId && assigneeId !== actorId && byId.get(assigneeId)) {
       const r = byId.get(assigneeId);
       sends.push(
-        sendMail({
-          to: r.email,
+        deliver(r, {
           subject: `[${issue.key}] Assigned to you: ${issue.title}`,
           ...renderEmail({
             heading: `${issue.key} is now assigned to you`,
@@ -97,8 +114,7 @@ export function issuePeopleAdded(issue, actorId, { assigneeId, reporterIds = [] 
       const r = byId.get(id);
       if (!r || id === actorId || id === assigneeId) continue;
       sends.push(
-        sendMail({
-          to: r.email,
+        deliver(r, {
           subject: `[${issue.key}] You're a reporter on: ${issue.title}`,
           ...renderEmail({
             heading: `You were added to ${issue.key}`,
@@ -151,8 +167,7 @@ export function commentAdded(issue, comment, { mentionIds = comment.mentionIds, 
       const r = byId.get(id);
       if (!r) continue;
       sends.push(
-        sendMail({
-          to: r.email,
+        deliver(r, {
           subject: `[${issue.key}] ${author?.name ?? "Someone"} mentioned you`,
           ...renderEmail({
             heading: `${author?.name ?? "Someone"} mentioned you on ${issue.key}`,
@@ -167,8 +182,7 @@ export function commentAdded(issue, comment, { mentionIds = comment.mentionIds, 
       const r = byId.get(id);
       if (!r || id === authorId || mentioned.has(id)) continue;
       sends.push(
-        sendMail({
-          to: r.email,
+        deliver(r, {
           subject: `[${issue.key}] New comment from ${author?.name ?? "someone"}`,
           ...renderEmail({
             heading: `New comment on ${issue.key}`,
@@ -279,8 +293,7 @@ export function leaveDecided(request, deciderId) {
     if (!employee || request.employeeId === deciderId) return;
     const type = LEAVE_NAMES[request.type] ?? request.type;
     const approved = request.status === "Approved";
-    await sendMail({
-      to: employee.email,
+    await deliver(employee, {
       subject: `Your ${type.toLowerCase()} was ${approved ? "approved" : "declined"}`,
       ...renderEmail({
         heading: approved ? "Your leave is approved" : "Your leave request was declined",
@@ -324,8 +337,7 @@ export function wfhDecided(request, deciderId) {
     const employee = byId.get(request.employeeId);
     if (!employee || request.employeeId === deciderId) return;
     const approved = request.status === "Approved";
-    await sendMail({
-      to: employee.email,
+    await deliver(employee, {
       subject: `Work from home on ${formatDay(request.date)} ${approved ? "approved" : "declined"}`,
       ...renderEmail({
         heading: approved ? "Your work-from-home day is approved" : "Your work-from-home request was declined",

@@ -249,14 +249,12 @@ issuesRouter.post("/", async (req, res) => {
 
 // --- Update -----------------------------------------------------------------
 
-issuesRouter.patch("/:ref", retryOnConflict(async (req, res) => {
-  const issue = await findIssue(req.params.ref);
-  if (!issue) return res.status(404).json({ error: "Issue not found" });
-  if (!(await canEdit(req, issue))) {
-    return res.status(403).json({ error: "Only the assignee, reporters, watchers, project lead, their manager or HR can edit this issue" });
-  }
-
-  const body = req.body ?? {};
+/**
+ * Applies one edit to an issue, saves it and sends the notifications the
+ * change calls for. Shared by the single-issue PATCH and bulk edit.
+ * Returns null on success, or { status, error }.
+ */
+async function applyUpdate(req, issue, body) {
   const by = req.employeeId;
   const log = (text, type = "field") => issue.activity.push({ by, type, text });
   // Who was involved before this edit, to email only the newly added.
@@ -269,7 +267,7 @@ issuesRouter.patch("/:ref", retryOnConflict(async (req, res) => {
 
   if (body.title !== undefined) {
     const title = String(body.title).trim();
-    if (!title) return res.status(400).json({ error: "Summary can't be empty" });
+    if (!title) return { status: 400, error: "Summary can't be empty" };
     if (title !== issue.title) log(`Summary changed to "${title.slice(0, 80)}"`);
     issue.title = title.slice(0, 255);
   }
@@ -279,29 +277,29 @@ issuesRouter.patch("/:ref", retryOnConflict(async (req, res) => {
     log("Description updated");
   }
   if (body.type !== undefined && body.type !== issue.type) {
-    if (!ISSUE_TYPES.includes(body.type)) return res.status(400).json({ error: "Invalid issue type" });
+    if (!ISSUE_TYPES.includes(body.type)) return { status: 400, error: "Invalid issue type" };
     // Changing type can invalidate the parent, so re-check it.
     const parentId = await resolveParent(body.type, body.parentId !== undefined ? body.parentId : issue.parentId, issue.projectKey);
-    if (typeof parentId === "string") return res.status(400).json({ error: parentId });
+    if (typeof parentId === "string") return { status: 400, error: parentId };
     log(`Type ${issue.type} → ${body.type}`);
     issue.type = body.type;
     issue.parentId = parentId;
   } else if (body.parentId !== undefined) {
     const parentId = await resolveParent(issue.type, body.parentId, issue.projectKey);
-    if (typeof parentId === "string") return res.status(400).json({ error: parentId });
-    if (parentId && String(parentId) === issue.id) return res.status(400).json({ error: "An issue can't be its own parent" });
+    if (typeof parentId === "string") return { status: 400, error: parentId };
+    if (parentId && String(parentId) === issue.id) return { status: 400, error: "An issue can't be its own parent" };
     log(parentId ? "Parent changed" : "Parent removed");
     issue.parentId = parentId;
   }
   if (body.status !== undefined && body.status !== issue.status) {
-    if (!ISSUE_STATUSES.includes(body.status)) return res.status(400).json({ error: "Invalid status" });
+    if (!ISSUE_STATUSES.includes(body.status)) return { status: 400, error: "Invalid status" };
     log(`${issue.status} → ${body.status}`, "status");
     issue.status = body.status;
     issue.completedAt = body.status === "Done" ? new Date() : null;
     if (body.status === "Done" && issue.remainingMinutes != null) issue.remainingMinutes = 0;
   }
   if (body.priority !== undefined && body.priority !== issue.priority) {
-    if (!ISSUE_PRIORITIES.includes(body.priority)) return res.status(400).json({ error: "Invalid priority" });
+    if (!ISSUE_PRIORITIES.includes(body.priority)) return { status: 400, error: "Invalid priority" };
     log(`Priority ${issue.priority} → ${body.priority}`);
     issue.priority = body.priority;
   }
@@ -327,7 +325,7 @@ issuesRouter.patch("/:ref", retryOnConflict(async (req, res) => {
   }
   if (body.assigneeId !== undefined && body.assigneeId !== issue.assigneeId) {
     const next = body.assigneeId ? await Employee.findById(body.assigneeId) : null;
-    if (body.assigneeId && !next) return res.status(404).json({ error: "Assignee not found" });
+    if (body.assigneeId && !next) return { status: 404, error: "Assignee not found" };
     // The new assignee and their overseers join; nobody already involved is dropped.
     if (next) {
       issue.reporterIds = uniq([...issue.reporterIds, ...(await workReportersFor(next))]);
@@ -339,7 +337,7 @@ issuesRouter.patch("/:ref", retryOnConflict(async (req, res) => {
   if (body.reporterIds !== undefined) {
     const ids = uniq(Array.isArray(body.reporterIds) ? body.reporterIds.map(String) : []);
     if ((await Employee.countDocuments({ _id: { $in: ids } })) !== ids.length) {
-      return res.status(400).json({ error: "Unknown reporter" });
+      return { status: 400, error: "Unknown reporter" };
     }
     issue.reporterIds = ids;
     log("Reporters updated");
@@ -347,7 +345,7 @@ issuesRouter.patch("/:ref", retryOnConflict(async (req, res) => {
   if (issue.type === "Epic") issue.sprintId = null;
   else if (body.sprintId !== undefined && issue.type !== "Sub-task") {
     const sprintId = await resolveSprint(body.sprintId, issue.projectKey);
-    if (typeof sprintId === "string") return res.status(400).json({ error: sprintId });
+    if (typeof sprintId === "string") return { status: 400, error: sprintId };
     if (String(sprintId) !== String(issue.sprintId)) {
       log(sprintId ? "Moved to a sprint" : "Moved to the backlog");
       issue.sprintId = sprintId;
@@ -357,7 +355,7 @@ issuesRouter.patch("/:ref", retryOnConflict(async (req, res) => {
   if (body.rank !== undefined && Number.isFinite(Number(body.rank))) issue.rank = Number(body.rank);
 
   const minutes = Math.round(Number(body.logMinutes) || 0);
-  if (minutes < 0 || minutes > 24 * 60) return res.status(400).json({ error: "Logged time must be 0–1440 minutes" });
+  if (minutes < 0 || minutes > 24 * 60) return { status: 400, error: "Logged time must be 0–1440 minutes" };
   if (minutes > 0 || body.note?.trim()) {
     issue.timeSpentMinutes += minutes;
     if (issue.remainingMinutes != null) issue.remainingMinutes = Math.max(0, issue.remainingMinutes - minutes);
@@ -376,8 +374,49 @@ issuesRouter.patch("/:ref", retryOnConflict(async (req, res) => {
     newMentions.length &&
       notify.commentAdded(issue, { authorId: by, body: issue.description, attachments: [] }, { mentionIds: newMentions, isEdit: true }),
   ]);
+  return null;
+}
+
+issuesRouter.patch("/:ref", retryOnConflict(async (req, res) => {
+  const issue = await findIssue(req.params.ref);
+  if (!issue) return res.status(404).json({ error: "Issue not found" });
+  if (!(await canEdit(req, issue))) {
+    return res.status(403).json({ error: "Only the assignee, reporters, watchers, project lead, their manager or HR can edit this issue" });
+  }
+
+  const failed = await applyUpdate(req, issue, req.body ?? {});
+  if (failed) return res.status(failed.status).json({ error: failed.error });
   res.json(await expand(issue));
 }));
+
+const BULK_FIELDS = ["status", "priority", "assigneeId", "sprintId", "labels", "dueDate"];
+
+/**
+ * Bulk edit: the same change applied to many issues. Each issue gets the
+ * normal permission check and edit; the result lists what succeeded and
+ * why anything didn't.
+ */
+issuesRouter.post("/bulk", async (req, res) => {
+  const { issueIds, changes } = req.body ?? {};
+  if (!Array.isArray(issueIds) || issueIds.length === 0 || issueIds.length > 200) {
+    return res.status(400).json({ error: "Pick between 1 and 200 issues" });
+  }
+  const body = Object.fromEntries(Object.entries(changes ?? {}).filter(([k]) => BULK_FIELDS.includes(k)));
+  if (Object.keys(body).length === 0) return res.status(400).json({ error: "Nothing to change" });
+
+  const results = [];
+  for (const id of issueIds) {
+    const result = await retryOnConflict(async () => {
+      const issue = await findIssue(id);
+      if (!issue) return { id, error: "Not found" };
+      if (!(await canEdit(req, issue))) return { id, key: issue.key, error: "You can't edit this issue" };
+      const failed = await applyUpdate(req, issue, body);
+      return failed ? { id, key: issue.key, error: failed.error } : { id, key: issue.key, ok: true };
+    })(req, res);
+    results.push(result);
+  }
+  res.json({ updated: results.filter((r) => r.ok).length, results });
+});
 
 /** Reorders issues and moves them between the backlog and sprints in one go (backlog drag-and-drop). */
 issuesRouter.post("/rank", async (req, res) => {

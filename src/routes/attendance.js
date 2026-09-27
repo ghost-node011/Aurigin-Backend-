@@ -18,21 +18,29 @@ attendanceRouter.get("/", async (_req, res) => {
  * Opens (or re-opens) today's record. A late check-in is recorded rather
  * than refused — people still need their attendance on file — and the
  * `lateCheckIn` flag is what an emergency exception later clears. Checking
- * in on a weekly holiday, or before the window opens, is refused outright.
+ * in on a weekly holiday, before the window opens or after office hours is
+ * refused outright (except for test accounts).
  *
  * Returns `{ error }` instead of a record when it's refused.
  */
 async function checkInToday(employeeId, status) {
   const date = todayISO();
   const minutes = nowMinutes();
-  const { checkInByMinutes, checkInOpensMinutesBefore, enforceLateCheckIn, weeklyOffDays } = await getSettings();
-  const weekday = new Date(date + "T00:00:00Z").getUTCDay();
-  if (weeklyOffDays.includes(weekday)) {
-    return { error: "Today is a weekly holiday — no attendance to mark (Handbook §1.10)." };
-  }
-  const opensAt = checkInByMinutes - checkInOpensMinutesBefore;
-  if (minutes < opensAt) {
-    return { error: `Check-in opens at ${minutesToLabel(opensAt)}. Office starts at ${minutesToLabel(checkInByMinutes)}.` };
+  const [settings, employee] = await Promise.all([getSettings(), Employee.findById(employeeId, { policyExempt: 1 }).lean()]);
+  const { checkInByMinutes, checkInOpensMinutesBefore, checkOutFromMinutes, enforceLateCheckIn, weeklyOffDays } = settings;
+  if (!employee?.policyExempt) {
+    const weekday = new Date(date + "T00:00:00Z").getUTCDay();
+    if (weeklyOffDays.includes(weekday)) {
+      return { error: "Today is a weekly holiday — no attendance to mark (Handbook §1.10)." };
+    }
+    const opensAt = checkInByMinutes - checkInOpensMinutesBefore;
+    if (minutes < opensAt) {
+      return { error: `Check-in opens at ${minutesToLabel(opensAt)}. Office starts at ${minutesToLabel(checkInByMinutes)}.` };
+    }
+    // After office hours there's no working day left to open.
+    if (minutes >= checkOutFromMinutes) {
+      return { error: `Check-in is closed — office hours ended at ${minutesToLabel(checkOutFromMinutes)}.` };
+    }
   }
   const record = await AttendanceRecord.findOneAndUpdate(
     { employeeId, date },

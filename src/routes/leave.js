@@ -32,7 +32,10 @@ leaveRouter.post("/", requireSelf("employeeId"), async (req, res) => {
 
   // Handbook §6.4 — leave accrues during probation but is availed only
   // after confirmation. HR can turn this off in settings.
-  if (employee.employmentStatus === "Probation" && !settings.leaveAllowedDuringProbation) {
+  // Test accounts skip every rule below so each flow can be tried any time.
+  const exempt = Boolean(employee.policyExempt);
+
+  if (!exempt && employee.employmentStatus === "Probation" && !settings.leaveAllowedDuringProbation) {
     return res.status(403).json({
       error: "Leave can be availed after successful completion of probation (Handbook §6.4).",
     });
@@ -41,7 +44,7 @@ leaveRouter.post("/", requireSelf("employeeId"), async (req, res) => {
   const days = daysBetweenInclusive(startDate, endDate);
 
   // Handbook §6.5 — at most 15 days of earned leave at a stretch.
-  if (type === "earned" && days > LEAVE_RULES.earned.maxStretch) {
+  if (!exempt && type === "earned" && days > LEAVE_RULES.earned.maxStretch) {
     return res.status(400).json({
       error: `Earned leave can be taken for at most ${LEAVE_RULES.earned.maxStretch} days at a stretch (Handbook §6.5).`,
     });
@@ -51,7 +54,7 @@ leaveRouter.post("/", requireSelf("employeeId"), async (req, res) => {
   // still possible in a genuine emergency (§6.12), flagged for the manager.
   const notice = requiredNoticeDays(type, days);
   const noticeGiven = daysBetweenInclusive(todayISO(), startDate) - 1;
-  if (noticeGiven < notice && !emergency) {
+  if (!exempt && noticeGiven < notice && !emergency) {
     return res.status(400).json({
       error: `${LEAVE_LABELS[type]} of ${days} day(s) needs ${notice} days' notice (Handbook §6.5–6.6). Mark it as an emergency if it can't wait.`,
     });
@@ -64,7 +67,7 @@ leaveRouter.post("/", requireSelf("employeeId"), async (req, res) => {
   const asApproved = requests.map((r) => ({ type: r.type, startDate: r.startDate, days: r.days, status: "Approved" }));
   const balance = leaveBalances(employee, asApproved, balanceDate(startDate, settings), settings)[type];
   const remaining = balance.quota - balance.used;
-  if (days > remaining) {
+  if (!exempt && days > remaining) {
     return res.status(400).json({
       error: `Only ${Math.max(remaining, 0)} day(s) of ${LEAVE_LABELS[type]} available; you requested ${days}.`,
     });

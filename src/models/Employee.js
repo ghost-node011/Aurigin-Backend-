@@ -23,6 +23,10 @@ const employeeSchema = new mongoose.Schema(
     // May create, edit and archive work projects. Admins always can; this
     // grants it to others (e.g. a lead developer) without making them admin.
     canManageProjects: { type: Boolean, default: false },
+    // A test account: attendance windows, weekly offs and leave rules
+    // (probation, notice, balance, stretch) don't block it, so every flow
+    // can be tried at any time. Set by an admin; never for a real employee.
+    policyExempt: { type: Boolean, default: false },
     location: { type: String, default: "" },
     employmentType: { type: String, default: "Full-time" },
     status: { type: String, enum: ["Active", "Onboarding"], default: "Active" },

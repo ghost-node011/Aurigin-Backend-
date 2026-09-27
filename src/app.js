@@ -15,6 +15,7 @@ import { projectsRouter } from "./routes/projects.js";
 import { sprintsRouter } from "./routes/sprints.js";
 import { filtersRouter, uploadsRouter } from "./routes/filters.js";
 import { workRouter } from "./routes/work.js";
+import { notificationsRouter } from "./routes/notifications.js";
 import { requireAuth } from "./middleware/auth.js";
 
 export const app = express();
@@ -53,6 +54,7 @@ app.use("/api/sprints", sprintsRouter);
 app.use("/api/filters", filtersRouter);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/work", workRouter);
+app.use("/api/notifications", notificationsRouter);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

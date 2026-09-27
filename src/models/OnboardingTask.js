@@ -7,6 +7,11 @@ const onboardingTaskSchema = new mongoose.Schema({
   title: { type: String, required: true },
   owner: { type: String, enum: ["self", "hr", "it", "manager"], required: true },
   status: { type: String, enum: ["Pending", "In Progress", "Done"], default: "Pending" },
+  // What was done, by whom — e.g. "Dell Latitude 5440, S/N 7XK2…" or
+  // "PAN verified against original". No documents or ID numbers are stored.
+  note: { type: String, default: "" },
+  updatedBy: { type: String, default: null },
+  updatedAt: { type: Date, default: null },
 });
 
 withIdJSON(onboardingTaskSchema);

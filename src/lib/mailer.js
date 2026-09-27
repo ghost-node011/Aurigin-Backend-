@@ -65,7 +65,10 @@ ${action ? `<a href="${escape(action.url)}" style="display:inline-block;backgrou
   ]
     .filter(Boolean)
     .join("\n\n");
-  return { html, text };
+  // For the in-app notification that goes with the email.
+  const base = (process.env.APP_URL || "http://localhost:5173").replace(/\/$/, "");
+  const link = action?.url?.startsWith(base) ? action.url.slice(base.length) || "/" : "/";
+  return { html, text, summary: intro ?? "", link };
 }
 
 /**
