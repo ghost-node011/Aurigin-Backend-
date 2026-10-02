@@ -17,6 +17,7 @@ import { filtersRouter, uploadsRouter } from "./routes/filters.js";
 import { workRouter, cronRouter } from "./routes/work.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { bniRouter } from "./routes/bni.js";
+import { beebarkRouter } from "./routes/beebark.js";
 import { requireAuth } from "./middleware/auth.js";
 
 export const app = express();
@@ -59,6 +60,7 @@ app.use("/api/uploads", uploadsRouter);
 app.use("/api/work", workRouter);
 app.use("/api/notifications", notificationsRouter);
 app.use("/api/bni", bniRouter);
+app.use("/api/beebark", beebarkRouter);
 
 app.use((err, _req, res, _next) => {
   console.error(err);
