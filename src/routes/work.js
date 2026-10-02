@@ -185,7 +185,7 @@ workRouter.post("/day/close", async (req, res) => {
  * review of a day nobody summarised (`auto`), where the summary is compiled
  * from ticket activity and the tickets' recorded statuses are kept as fact.
  */
-export async function finishDay({ employee, date, plan, summary, auto = false, extraTickets = [] }) {
+export async function finishDay({ employee, date, plan, summary, auto = false, extraTickets = [], notify = true }) {
   const employeeId = employee.id;
   const [todays, carried] = await Promise.all([
     ticketsForDay(employeeId, date),
@@ -262,7 +262,7 @@ export async function finishDay({ employee, date, plan, summary, auto = false, e
     minutesLogged,
   };
   await plan.save();
-  await dayClosed(employee, plan, tickets, { auto });
+  if (notify) await dayClosed(employee, plan, tickets, { auto });
 }
 
 /**
@@ -282,6 +282,44 @@ workRouter.post("/day/reopen", async (req, res) => {
   plan.reviewSource = null;
   await plan.save();
   res.json(await dayResponse(req.employeeId, date, plan));
+});
+
+/**
+ * One row per person the caller may view: average score, days reviewed,
+ * tickets done and the latest review, over the last `days` (default 30).
+ */
+workRouter.get("/performance/summary", async (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 180);
+  const since = new Date(`${todayISO()}T00:00:00Z`);
+  since.setUTCDate(since.getUTCDate() - days);
+  const sinceISO = since.toISOString().slice(0, 10);
+
+  const employees = await Employee.find({}, { name: 1, title: 1, managerId: 1 }).lean();
+  const visible = [];
+  for (const e of employees) if (await canViewWorkOf(req.employeeId, req.role, e._id)) visible.push(e);
+
+  const plans = await DayPlan.find(
+    { employeeId: { $in: visible.map((e) => e._id) }, closedAt: { $ne: null }, date: { $gte: sinceISO } },
+    { employeeId: 1, date: 1, review: 1, reviewSource: 1 },
+  )
+    .sort({ date: -1 })
+    .lean();
+
+  res.json(
+    visible.map((e) => {
+      const mine = plans.filter((p) => p.employeeId === e._id);
+      const scored = mine.filter((p) => p.review?.score != null);
+      return {
+        employeeId: e._id,
+        days: mine.length,
+        averageScore: scored.length ? Math.round(scored.reduce((s, p) => s + p.review.score, 0) / scored.length) : null,
+        completed: mine.reduce((s, p) => s + (p.review?.completed ?? 0), 0),
+        total: mine.reduce((s, p) => s + (p.review?.total ?? 0), 0),
+        autoDays: mine.filter((p) => p.reviewSource === "auto").length,
+        last: mine[0] ? { date: mine[0].date, score: mine[0].review?.score ?? null, rating: mine[0].review?.rating ?? "" } : null,
+      };
+    }),
+  );
 });
 
 /** Day-by-day performance history, newest first. */
@@ -365,14 +403,14 @@ async function activityOn(employee, date) {
  * was already closed or there's nothing to review (no plan and no activity).
  * Returns true when a review was made.
  */
-export async function autoReviewDay(employee, date) {
+export async function autoReviewDay(employee, date, { notify = true } = {}) {
   const existing = await DayPlan.findOne({ employeeId: employee.id, date });
   if (existing?.closedAt) return false;
   const { lines, issues } = await activityOn(employee, date);
   if (!existing && lines.length === 0) return false;
   const plan = existing ?? new DayPlan({ employeeId: employee.id, date, planSource: "fallback" });
   const summary = lines.length ? lines.join("\n") : "No ticket activity was recorded on this day.";
-  await finishDay({ employee, date, plan, summary, auto: true, extraTickets: issues });
+  await finishDay({ employee, date, plan, summary, auto: true, extraTickets: issues, notify });
   return true;
 }
 
@@ -402,7 +440,11 @@ cronRouter.get("/auto-review", async (req, res) => {
   const today = todayISO();
   const employees = await Employee.find();
   let reviewed = 0;
+  // Vercel stops the function at 60s; rate-limit waits can add up across
+  // people, so stop at 45s — anyone left is caught up when they open My Day.
+  const startedAt = Date.now();
   for (const employee of employees) {
+    if (Date.now() - startedAt > 45_000) break;
     try {
       if (await autoReviewDay(employee, today)) reviewed++;
       await catchUpReviews(employee, today);

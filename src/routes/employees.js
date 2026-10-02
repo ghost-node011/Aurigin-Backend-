@@ -133,10 +133,39 @@ employeesRouter.patch("/:id/policy-exempt", requireRole("admin"), async (req, re
   res.json(employee);
 });
 
+/**
+ * Marks someone fully onboarded (HR/admin): any checklist tasks still open
+ * are ticked off with a note saying who closed them, and the person becomes
+ * an active employee — so it works whether or not every task was done.
+ */
 employeesRouter.patch("/:id/complete-onboarding", requireRole("admin", "hr"), async (req, res) => {
-  const employee = await Employee.findByIdAndUpdate(req.params.id, { status: "Active" }, { new: true });
+  const employee = await Employee.findById(req.params.id);
   if (!employee) return res.status(404).json({ error: "Employee not found" });
-  res.json(employee);
+  const closer = await Employee.findById(req.employeeId, { name: 1 }).lean();
+  const { modifiedCount } = await OnboardingTask.updateMany(
+    { newHireId: employee.id, status: { $ne: "Done" } },
+    // A pipeline update so an existing note is kept rather than overwritten.
+    [
+      {
+        $set: {
+          status: "Done",
+          updatedBy: req.employeeId,
+          updatedAt: new Date(),
+          note: {
+            $cond: [
+              { $gt: [{ $strLenCP: { $ifNull: ["$note", ""] } }, 0] },
+              "$note",
+              `Closed when ${closer?.name ?? "HR"} marked onboarding complete`,
+            ],
+          },
+        },
+      },
+    ],
+    { updatePipeline: true },
+  );
+  employee.status = "Active";
+  await employee.save();
+  res.json({ ...employee.toJSON(), tasksClosed: modifiedCount });
 });
 
 /**

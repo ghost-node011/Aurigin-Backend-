@@ -35,8 +35,9 @@ export function groqConfigured() {
  * Sends a system + user prompt and returns the parsed JSON object.
  *
  * Throws on any failure so callers can fall back to non-AI behaviour.
- * Timeouts and 5xx are retried once; 429s are not, since Groq's rate-limit
- * window runs well past a short backoff.
+ * Timeouts and 5xx are retried once. A 429 (the free tier's tokens-per-
+ * minute limit, hit when the nightly job reviews several people in a row)
+ * waits as long as Groq says to — up to 20s — and tries again, twice.
  */
 export async function askGroqForJson(system, user) {
   const apiKey = process.env.GROQ_API_KEY;
@@ -48,12 +49,20 @@ export async function askGroqForJson(system, user) {
   ];
 
   let text;
-  try {
-    text = await requestGroq(messages, model, apiKey);
-  } catch (err) {
-    if (err.status && err.status < 500) throw err;
-    await sleep(1000);
-    text = await requestGroq(messages, model, apiKey);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      text = await requestGroq(messages, model, apiKey);
+      break;
+    } catch (err) {
+      if (err.status === 429 && attempt < 2) {
+        const hinted = Number(/try again in ([\d.]+)s/i.exec(err.message)?.[1]);
+        await sleep(Math.min(Number.isFinite(hinted) ? hinted * 1000 + 500 : 8000, 20_000));
+        continue;
+      }
+      if (err.status && err.status < 500) throw err;
+      if (attempt >= 1) throw err;
+      await sleep(1000);
+    }
   }
 
   const match = text.match(/[[{][\s\S]*[\]}]/);
