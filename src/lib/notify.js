@@ -220,17 +220,19 @@ export function dayPlanned(employee, tickets, { added = false } = {}) {
 }
 
 /** The end-of-day review, to the employee's work reporters. */
-export function dayClosed(employee, plan, tickets) {
+export function dayClosed(employee, plan, tickets, { auto = false } = {}) {
   return safely("day closed", async () => {
     const reporterIds = await workReportersFor(employee);
     const byId = await people(reporterIds);
     const review = plan.review ?? {};
     const list = tickets.map((t) => `[${t.status}]  ${t.key}  ${t.title}`).join("\n");
     await sendEach([...byId.values()], (r) => ({
-      subject: `${employee.name} closed their day — ${review.completed ?? 0}/${review.total ?? 0} done${review.score != null ? `, ${review.score}/100` : ""}`,
+      subject: `${employee.name}'s ${auto ? `${plan.date} — reviewed from ticket activity (no summary)` : "day closed"} — ${review.completed ?? 0}/${review.total ?? 0} done${review.score != null ? `, ${review.score}/100` : ""}`,
       ...renderEmail({
         heading: `${employee.name}'s day in review`,
-        intro: `Hi ${firstName(r)}, ${employee.name} wrapped up today.${review.feedback ? ` ${review.feedback}` : ""}`,
+        intro: auto
+          ? `Hi ${firstName(r)}, ${employee.name} didn't write an end-of-day summary for ${plan.date}, so the day was reviewed from what they did on their tickets.${review.feedback ? ` ${review.feedback}` : ""}`
+          : `Hi ${firstName(r)}, ${employee.name} wrapped up today.${review.feedback ? ` ${review.feedback}` : ""}`,
         rows: [
           ["Score", review.score != null ? `${review.score} / 100${review.rating ? ` (${review.rating})` : ""}` : null],
           ["Tickets done", `${review.completed ?? 0} of ${review.total ?? 0}`],

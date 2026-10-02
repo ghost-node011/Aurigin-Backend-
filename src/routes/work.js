@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { DayPlan } from "../models/DayPlan.js";
 import { Issue } from "../models/Issue.js";
+import { Comment } from "../models/Comment.js";
 import { Project, ensureDefaultProject } from "../models/Project.js";
 import { Employee } from "../models/Employee.js";
 import { AttendanceRecord } from "../models/AttendanceRecord.js";
@@ -38,6 +39,11 @@ workRouter.get("/day", async (req, res) => {
   const date = String(req.query.date || todayISO());
   if (!(await canViewWorkOf(req.employeeId, req.role, employeeId))) {
     return res.status(403).json({ error: "You can't view this person's work" });
+  }
+  // Opening your own day reviews any recent day you forgot to summarise.
+  if (employeeId === req.employeeId) {
+    const me = await Employee.findById(employeeId);
+    if (me) await catchUpReviews(me);
   }
   const plan = await DayPlan.findOne({ employeeId, date });
   res.json(await dayResponse(employeeId, date, plan));
@@ -167,8 +173,21 @@ workRouter.post("/day/close", async (req, res) => {
   if (!plan?.plannedAt) return res.status(400).json({ error: "Plan your day before closing it." });
   if (plan.closedAt) return res.status(409).json({ error: "Today's day is already closed." });
 
-  const [employee, todays, carried] = await Promise.all([
-    Employee.findById(employeeId),
+  const employee = await Employee.findById(employeeId);
+  await finishDay({ employee, date, plan, summary });
+  res.json(await dayResponse(employeeId, date, plan));
+});
+
+/**
+ * Closes a day: applies the review of `summary` to the day's tickets, moves
+ * unfinished work to the backlog, files follow-ups, stores the review and
+ * notifies reporters. Shared by the end-of-day summary and the automatic
+ * review of a day nobody summarised (`auto`), where the summary is compiled
+ * from ticket activity and the tickets' recorded statuses are kept as fact.
+ */
+export async function finishDay({ employee, date, plan, summary, auto = false, extraTickets = [] }) {
+  const employeeId = employee.id;
+  const [todays, carried] = await Promise.all([
     ticketsForDay(employeeId, date),
     Issue.find({
       assigneeId: employeeId,
@@ -176,32 +195,36 @@ workRouter.post("/day/close", async (req, res) => {
       status: { $in: ["In Progress", "In Review", "Blocked"] },
     }).limit(20),
   ]);
-  const tickets = [...todays, ...carried];
-  const { updates, review, newItems = [], source } = await closeDay({ employee, plan, summary, tickets });
+  const seen = new Set();
+  const tickets = [...todays, ...carried, ...extraTickets].filter((t) => !seen.has(t.key) && seen.add(t.key));
+  const { updates, review, newItems = [], source } = await closeDay({ employee, plan, summary, tickets, auto });
 
   let minutesLogged = 0;
   const movedToBacklog = [];
   for (const ticket of tickets) {
     const u = updates[ticket.key] ?? { status: null, minutes: 0, note: "" };
-    if (u.status && u.status !== ticket.status) {
+    // In an automatic review the recorded status is what happened; only a
+    // written summary can say otherwise.
+    if (!auto && u.status && u.status !== ticket.status) {
       ticket.activity.push({ by: null, type: "status", text: `${ticket.status} → ${u.status} (end-of-day summary)` });
       ticket.status = u.status;
       ticket.completedAt = u.status === "Done" ? new Date() : null;
     }
-    if (u.minutes > 0 || u.note) {
+    if (u.minutes > 0 || (!auto && u.note)) {
       ticket.timeSpentMinutes += u.minutes;
       if (ticket.remainingMinutes != null) ticket.remainingMinutes = Math.max(0, ticket.remainingMinutes - u.minutes);
       minutesLogged += u.minutes;
       ticket.activity.push({ by: null, type: u.minutes > 0 ? "worklog" : "note", text: u.note, minutes: u.minutes });
     }
-    // Unfinished work — including anything the summary didn't mention — goes
-    // to the backlog for another day. "In Review" is finished work waiting on
-    // someone else, so it stays active. Only when the AI read the summary:
-    // without it no status was decided, and everything would be parked.
-    if (source === "ai" && ["To Do", "In Progress", "Blocked"].includes(ticket.status) && !ticket.inBacklog) {
+    // Unfinished planned work — including anything the summary didn't
+    // mention — goes to the backlog for another day. "In Review" is finished
+    // work waiting on someone else, so it stays active. Only when the AI read
+    // the day: without it no status was decided, and everything would be parked.
+    const planned = ticket.plannedDate === date || !auto;
+    if (source === "ai" && planned && ["To Do", "In Progress", "Blocked"].includes(ticket.status) && !ticket.inBacklog) {
       ticket.inBacklog = true;
       movedToBacklog.push(ticket.key);
-      ticket.activity.push({ by: null, type: "note", text: "Not finished today — moved to the backlog" });
+      ticket.activity.push({ by: null, type: "note", text: `Not finished on ${date} — moved to the backlog` });
     }
     await ticket.save();
   }
@@ -210,7 +233,7 @@ workRouter.post("/day/close", async (req, res) => {
   const reporterIds = await workReportersFor(employee);
   const defaultProject = await ensureDefaultProject();
   const followUps = [];
-  for (const item of newItems) {
+  for (const item of auto ? [] : newItems) {
     followUps.push(
       await Issue.create({
         key: await newIssueKey(defaultProject.key),
@@ -231,7 +254,7 @@ workRouter.post("/day/close", async (req, res) => {
 
   plan.summary = summary;
   plan.closedAt = new Date();
-  plan.reviewSource = source;
+  plan.reviewSource = auto ? (source === "ai" ? "auto" : "fallback") : source;
   plan.review = {
     ...review,
     completed: todays.filter((t) => t.status === "Done").length,
@@ -239,10 +262,8 @@ workRouter.post("/day/close", async (req, res) => {
     minutesLogged,
   };
   await plan.save();
-  await dayClosed(employee, plan, tickets);
-
-  res.json(await dayResponse(employeeId, date, plan));
-});
+  await dayClosed(employee, plan, tickets, { auto });
+}
 
 /**
  * Reopens today's closed day so it can be planned and closed again — for
@@ -274,4 +295,120 @@ workRouter.get("/performance", async (req, res) => {
     .sort({ date: -1 })
     .limit(days);
   res.json(plans);
+});
+
+// --- Automatic review of days nobody summarised ------------------------------
+//
+// People who just work their tickets and never write an end-of-day summary
+// still get a day reviewed: the summary is compiled from what they actually
+// did on their tickets that day. Runs at 6:30 pm IST from Vercel Cron, and catches
+// up on any missed day (the last week) whenever someone opens My Day.
+
+/** The UTC instants bounding a company-time (IST) calendar day. */
+function dayBounds(date) {
+  const start = new Date(`${date}T00:00:00+05:30`);
+  return { start, end: new Date(start.getTime() + 24 * 60 * 60 * 1000) };
+}
+
+function previousDays(date, n) {
+  const out = [];
+  const d = new Date(`${date}T00:00:00Z`);
+  for (let i = 1; i <= n; i++) {
+    d.setUTCDate(d.getUTCDate() - 1);
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+const minutesText = (m) => [Math.floor(m / 60) && `${Math.floor(m / 60)}h`, m % 60 && `${m % 60}m`].filter(Boolean).join(" ");
+
+/**
+ * What `employee` did on their own tickets on `date`: their status changes,
+ * time logged, notes and issues they created, and comments they wrote on
+ * them. Other people's actions don't count as this person's day — a
+ * manager creating a task for someone is the manager's doing, and isn't by
+ * itself a reason to review the manager's day. Returns the log lines and
+ * the issues involved.
+ */
+async function activityOn(employee, date) {
+  const { start, end } = dayBounds(date);
+  const inDay = { $gte: start, $lt: end };
+  const [issues, comments] = await Promise.all([
+    Issue.find({ assigneeId: employee.id, activity: { $elemMatch: { at: inDay, by: employee.id } } }),
+    Comment.find({ authorId: employee.id, createdAt: inDay }, { issueId: 1 }).lean(),
+  ]);
+  const lines = [];
+  for (const issue of issues) {
+    const entries = issue.activity.filter((a) => a.at >= start && a.at < end && a.by === employee.id);
+    for (const a of entries) {
+      if (a.type === "created") lines.push(`Created ${issue.key} "${issue.title}"`);
+      else if (a.type === "status") lines.push(`${issue.key} "${issue.title}": ${a.text}`);
+      else if (a.type === "worklog") lines.push(`${issue.key}: logged ${minutesText(a.minutes)}${a.text ? ` — ${a.text}` : ""}`);
+      else if (a.type === "note" && a.text) lines.push(`${issue.key}: ${a.text}`);
+    }
+  }
+  // Comments count on their own tickets (including ones with no other activity today).
+  const commented = comments.length
+    ? await Issue.find({ _id: { $in: comments.map((c) => c.issueId) }, assigneeId: employee.id })
+    : [];
+  const mine = comments.filter((c) => commented.some((i) => String(i._id) === String(c.issueId)));
+  if (mine.length) {
+    const keys = commented;
+    lines.push(`Commented ${mine.length} time${mine.length === 1 ? "" : "s"} on ${[...new Set(keys.map((k) => k.key))].join(", ")}`);
+  }
+  const all = new Map([...issues, ...commented].map((i) => [i.key, i]));
+  return { lines, issues: [...all.values()] };
+}
+
+/**
+ * Reviews `date` for `employee` from their ticket activity, unless the day
+ * was already closed or there's nothing to review (no plan and no activity).
+ * Returns true when a review was made.
+ */
+export async function autoReviewDay(employee, date) {
+  const existing = await DayPlan.findOne({ employeeId: employee.id, date });
+  if (existing?.closedAt) return false;
+  const { lines, issues } = await activityOn(employee, date);
+  if (!existing && lines.length === 0) return false;
+  const plan = existing ?? new DayPlan({ employeeId: employee.id, date, planSource: "fallback" });
+  const summary = lines.length ? lines.join("\n") : "No ticket activity was recorded on this day.";
+  await finishDay({ employee, date, plan, summary, auto: true, extraTickets: issues });
+  return true;
+}
+
+/** Catches up on the last week of unreviewed days for one employee (not today). */
+export async function catchUpReviews(employee, today = todayISO()) {
+  for (const date of previousDays(today, 7)) {
+    try {
+      await autoReviewDay(employee, date);
+    } catch (err) {
+      console.error(`Auto review failed for ${employee.id} on ${date}:`, err.message);
+    }
+  }
+}
+
+/**
+ * Daily job at 6:30 pm IST (Vercel Cron → GET /api/cron/auto-review): reviews today for
+ * everyone who didn't close it, plus any missed days. Protected by
+ * CRON_SECRET, which Vercel sends as a bearer token.
+ */
+export const cronRouter = Router();
+
+cronRouter.get("/auto-review", async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.headers.authorization !== `Bearer ${secret}`) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  const today = todayISO();
+  const employees = await Employee.find();
+  let reviewed = 0;
+  for (const employee of employees) {
+    try {
+      if (await autoReviewDay(employee, today)) reviewed++;
+      await catchUpReviews(employee, today);
+    } catch (err) {
+      console.error(`Auto review failed for ${employee.id}:`, err.message);
+    }
+  }
+  res.json({ ok: true, date: today, reviewed });
 });

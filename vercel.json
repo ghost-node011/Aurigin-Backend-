@@ -9,5 +9,11 @@
     "api/index.js": {
       "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/auto-review",
+      "schedule": "0 13 * * *"
+    }
+  ]
 }

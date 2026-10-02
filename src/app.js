@@ -14,8 +14,9 @@ import { issuesRouter, commentsRouter } from "./routes/issues.js";
 import { projectsRouter } from "./routes/projects.js";
 import { sprintsRouter } from "./routes/sprints.js";
 import { filtersRouter, uploadsRouter } from "./routes/filters.js";
-import { workRouter } from "./routes/work.js";
+import { workRouter, cronRouter } from "./routes/work.js";
 import { notificationsRouter } from "./routes/notifications.js";
+import { bniRouter } from "./routes/bni.js";
 import { requireAuth } from "./middleware/auth.js";
 
 export const app = express();
@@ -36,6 +37,8 @@ app.get("/", (_req, res) => res.json({ name: "Aurigin HR API", status: "live", h
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter); // login is public; /me protects itself
 
+app.use("/api/cron", cronRouter); // Vercel Cron, authorised by CRON_SECRET
+
 // Everything below requires a valid token.
 app.use("/api", requireAuth);
 
@@ -55,6 +58,7 @@ app.use("/api/filters", filtersRouter);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/work", workRouter);
 app.use("/api/notifications", notificationsRouter);
+app.use("/api/bni", bniRouter);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

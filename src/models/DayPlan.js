@@ -31,7 +31,8 @@ const dayPlanSchema = new mongoose.Schema(
 
     summary: { type: String, default: "" },
     closedAt: { type: Date, default: null },
-    reviewSource: { type: String, enum: ["ai", "fallback", null], default: null },
+    // "auto": reviewed from ticket activity because no summary was written.
+    reviewSource: { type: String, enum: ["ai", "fallback", "auto", null], default: null },
     review: { type: reviewSchema, default: null },
 
     // Issues this day sent to the backlog — later work from the overview,
