@@ -8,7 +8,7 @@ bniRouter.use(requireRole("admin"));
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-function filterFrom(q) {
+export function filterFrom(q) {
   const filter = {};
   if (BNI_CATEGORIES.includes(q.category)) filter.category = q.category;
   if (q.phone === "yes") filter.hasPhone = true;

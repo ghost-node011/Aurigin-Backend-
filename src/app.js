@@ -17,6 +17,7 @@ import { filtersRouter, uploadsRouter } from "./routes/filters.js";
 import { workRouter, cronRouter } from "./routes/work.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { bniRouter } from "./routes/bni.js";
+import { bniCommsRouter } from "./routes/bniComms.js";
 import { beebarkRouter } from "./routes/beebark.js";
 import { requireAuth } from "./middleware/auth.js";
 
@@ -59,6 +60,7 @@ app.use("/api/filters", filtersRouter);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/work", workRouter);
 app.use("/api/notifications", notificationsRouter);
+app.use("/api/bni/comms", bniCommsRouter);
 app.use("/api/bni", bniRouter);
 app.use("/api/beebark", beebarkRouter);
 
