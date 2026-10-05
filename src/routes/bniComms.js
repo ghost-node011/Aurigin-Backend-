@@ -16,11 +16,12 @@ export const bniCommsRouter = Router();
 bniCommsRouter.use(requireRole("admin"));
 
 // The template each BNI category gets by default
+// (plain-text "letter" versions: these reach Gmail's Primary tab)
 export const TEMPLATE_FOR_CATEGORY = {
-  architects: "bni-architects",
-  "interior designer": "bni-interiors",
-  construction: "bni-construction",
-  "real estate": "bni-real-estate",
+  architects: "bni-architects-letter",
+  "interior designer": "bni-interiors-letter",
+  construction: "bni-construction-letter",
+  "real estate": "bni-real-estate-letter",
 };
 
 const FILTER_KEYS = ["category", "phone", "email", "verified", "q"];
@@ -136,6 +137,11 @@ bniCommsRouter.post("/requests/:requestId/cancel", wrap(async (req, res) => {
 }));
 bniCommsRouter.get("/logs", relay(() => "/logs"));
 bniCommsRouter.get("/logs/:id", relay((req) => `/logs/${encodeURIComponent(req.params.id)}`));
+
+/** Stop emailing an address, e.g. after they reply "no": { email } */
+bniCommsRouter.post("/suppressions", wrap(async (req, res) => {
+  res.status(201).json(await beebark("/suppressions", { method: "POST", body: { email: req.body.email, reason: "manual" } }));
+}));
 
 /** Latest email status for the BNI contact ids on screen: { ids: [...] } */
 bniCommsRouter.post("/status", wrap(async (req, res) => {
