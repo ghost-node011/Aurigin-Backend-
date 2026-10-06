@@ -85,8 +85,8 @@ bniCommsRouter.get("/audience", wrap(async (req, res) => {
 /**
  * Send. { templateId, filters, confirmCount } emails everyone matching the
  * filters; confirmCount must equal the current count, so a change in the data
- * can't silently widen a send. { templateId, test: true } sends one copy to
- * the signed-in admin.
+ * can't silently widen a send. { templateId, test: true, testEmails } sends a
+ * test copy to up to 5 typed addresses, or to the signed-in admin.
  */
 bniCommsRouter.post("/send", wrap(async (req, res) => {
   const { templateId, test } = req.body;
@@ -94,11 +94,22 @@ bniCommsRouter.post("/send", wrap(async (req, res) => {
   const me = await Employee.findById(req.employeeId, { name: 1, email: 1 }).lean();
 
   if (test === true) {
+    // Test to the addresses typed in the portal (up to 5), or to yourself
+    const typed = String(req.body.testEmails ?? "")
+      .split(/[\s,;]+/)
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+    if (typed.length > 5) return res.status(400).json({ error: "Send a test to at most 5 addresses" });
+    const invalid = typed.filter((e) => !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(e));
+    if (invalid.length) return res.status(400).json({ error: `Not a valid email: ${invalid.join(", ")}` });
+    const recipients = typed.length
+      ? typed.map((email) => ({ email, name: email === me?.email?.toLowerCase() ? me.name : "" }))
+      : [{ email: me?.email, name: me?.name }];
     const result = await beebark("/send", {
       method: "POST",
-      body: { templateId, test: true, source: "bni", createdBy: me?.email ?? "", recipients: [{ email: me?.email, name: me?.name }] },
+      body: { templateId, test: true, source: "bni", createdBy: me?.email ?? "", recipients },
     });
-    return res.status(201).json(result);
+    return res.status(201).json({ ...result, sentTo: recipients.map((r) => r.email) });
   }
 
   const filters = pickFilters(req.body.filters);
