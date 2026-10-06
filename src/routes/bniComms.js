@@ -166,8 +166,34 @@ bniCommsRouter.get("/requests/:requestId", relay((req) => `/requests/${encodeURI
 bniCommsRouter.post("/requests/:requestId/cancel", wrap(async (req, res) => {
   res.json(await beebark(`/requests/${encodeURIComponent(req.params.requestId)}/cancel`, { method: "POST" }));
 }));
-bniCommsRouter.get("/logs", relay(() => "/logs"));
-bniCommsRouter.get("/logs/:id", relay((req) => `/logs/${encodeURIComponent(req.params.id)}`));
+// Adds each recipient's BNI details (phone, company, city, chapter) so the
+// reports show them without searching BNI data. Matched by contact id, or by
+// email for test sends.
+const MEMBER_FIELDS = { name: 1, company: 1, mobile: 1, phone: 1, city: 1, chapter: 1, category: 1, email: 1 };
+const memberInfo = (c) =>
+  c ? { id: String(c._id), phone: c.mobile || c.phone || "", company: c.company || "", city: c.city || "", chapter: c.chapter || "", category: c.category } : null;
+
+async function withMembers(logs) {
+  const ids = [...new Set(logs.map((l) => l.externalId).filter((id) => /^[a-f0-9]{24}$/.test(id ?? "")))];
+  const emails = [...new Set(logs.filter((l) => !l.externalId).map((l) => l.to))];
+  const [byId, byEmail] = await Promise.all([
+    ids.length ? BniContact.find({ _id: { $in: ids } }, MEMBER_FIELDS).lean() : [],
+    emails.length ? BniContact.find({ email: { $in: emails.map((e) => new RegExp(`(^|[\\s,;/])${e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[\\s,;/])`, "i")) } }, MEMBER_FIELDS).lean() : [],
+  ]);
+  const idMap = new Map(byId.map((c) => [String(c._id), c]));
+  const findByEmail = (to) => byEmail.find((c) => String(c.email).toLowerCase().split(/[\s,;/]+/).includes(to));
+  return logs.map((l) => ({ ...l, member: memberInfo(idMap.get(l.externalId) ?? (l.externalId ? null : findByEmail(l.to))) }));
+}
+
+bniCommsRouter.get("/logs", wrap(async (req, res) => {
+  const data = await beebark("/logs", { query: req.query });
+  res.json({ ...data, items: await withMembers(data.items) });
+}));
+bniCommsRouter.get("/logs/:id", wrap(async (req, res) => {
+  const log = await beebark(`/logs/${encodeURIComponent(req.params.id)}`);
+  const [withMember] = await withMembers([log]);
+  res.json(withMember);
+}));
 /** Stop one person's email in a send, if it hasn't gone out yet */
 bniCommsRouter.post("/logs/:id/cancel", wrap(async (req, res) => {
   res.json(await beebark(`/logs/${encodeURIComponent(req.params.id)}/cancel`, { method: "POST" }));
