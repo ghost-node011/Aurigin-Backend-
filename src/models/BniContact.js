@@ -32,6 +32,11 @@ const bniContactSchema = new mongoose.Schema(
     // False for email-only fill-ins whose country isn't recorded anywhere:
     // not provably Indian, though nothing marks them as foreign either.
     verifiedIndian: { type: Boolean, default: true, index: true },
+    // Removed from the directory: hidden everywhere and never emailed again.
+    // Kept (not deleted) so a re-import can't quietly bring them back.
+    removedAt: { type: Date, default: null, index: true },
+    removedBy: { type: String, default: "" }, // employee id
+    removedByName: { type: String, default: "" },
   },
   { timestamps: true },
 );

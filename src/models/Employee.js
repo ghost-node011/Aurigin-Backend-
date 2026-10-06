@@ -23,6 +23,8 @@ const employeeSchema = new mongoose.Schema(
     // May create, edit and archive work projects. Admins always can; this
     // grants it to others (e.g. a lead developer) without making them admin.
     canManageProjects: { type: Boolean, default: false },
+    // BNI directory access for non-admins: view and remove members (no exports, emails or email reports)
+    canManageBni: { type: Boolean, default: false },
     // A test account: attendance windows, weekly offs and leave rules
     // (probation, notice, balance, stretch) don't block it, so every flow
     // can be tried at any time. Set by an admin; never for a real employee.

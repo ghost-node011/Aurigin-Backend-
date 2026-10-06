@@ -33,7 +33,7 @@ const pickFilters = (raw = {}) =>
 // Everyone matching the BNI filters who has an email address
 const recipientFilter = (filters) => ({ ...filterFrom(filters), hasEmail: true });
 
-async function beebark(path, { method = "GET", body, query } = {}) {
+export async function beebark(path, { method = "GET", body, query } = {}) {
   const base = (process.env.BEEBARK_API_URL || "").replace(/\/$/, "");
   const key = process.env.BEEBARK_COMMS_API_KEY;
   if (!base || !key) {

@@ -122,6 +122,17 @@ employeesRouter.patch("/:id/project-manager", requireRole("admin"), async (req, 
   res.json(employee);
 });
 
+/** Grants or removes access to the BNI directory (view and remove members). Admin only. */
+employeesRouter.patch("/:id/bni-access", requireRole("admin"), async (req, res) => {
+  const employee = await Employee.findByIdAndUpdate(
+    req.params.id,
+    { canManageBni: Boolean(req.body?.canManageBni) },
+    { returnDocument: "after" },
+  );
+  if (!employee) return res.status(404).json({ error: "Employee not found" });
+  res.json(employee);
+});
+
 /** Marks an account as a test account that policy rules don't block. Admin only. */
 employeesRouter.patch("/:id/policy-exempt", requireRole("admin"), async (req, res) => {
   const employee = await Employee.findByIdAndUpdate(
