@@ -168,6 +168,10 @@ bniCommsRouter.post("/requests/:requestId/cancel", wrap(async (req, res) => {
 }));
 bniCommsRouter.get("/logs", relay(() => "/logs"));
 bniCommsRouter.get("/logs/:id", relay((req) => `/logs/${encodeURIComponent(req.params.id)}`));
+/** Stop one person's email in a send, if it hasn't gone out yet */
+bniCommsRouter.post("/logs/:id/cancel", wrap(async (req, res) => {
+  res.json(await beebark(`/logs/${encodeURIComponent(req.params.id)}/cancel`, { method: "POST" }));
+}));
 
 /** Stop emailing an address, e.g. after they reply "no": { email } */
 bniCommsRouter.post("/suppressions", wrap(async (req, res) => {
