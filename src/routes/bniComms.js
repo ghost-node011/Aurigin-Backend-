@@ -16,13 +16,15 @@ export const bniCommsRouter = Router();
 bniCommsRouter.use(requireRole("admin"));
 
 // The template each BNI category gets by default
-// (plain-text "letter" versions: these reach Gmail's Primary tab)
+// Step 1 is the intro without links (reaches Gmail's Primary tab); step 2,
+// sent from Email reports, is the follow-up with links in the same thread.
 export const TEMPLATE_FOR_CATEGORY = {
-  architects: "bni-architects-letter",
-  "interior designer": "bni-interiors-letter",
-  construction: "bni-construction-letter",
-  "real estate": "bni-real-estate-letter",
+  architects: "bni-architects-intro",
+  "interior designer": "bni-interiors-intro",
+  construction: "bni-construction-intro",
+  "real estate": "bni-real-estate-intro",
 };
+const FOLLOW_UP_FOR = (templateId) => templateId.replace(/-(intro|letter)$/, "") + "-links";
 
 const FILTER_KEYS = ["category", "phone", "email", "verified", "q"];
 const pickFilters = (raw = {}) =>
@@ -63,7 +65,7 @@ const relay = (path) => wrap(async (req, res) => res.json(await beebark(path(req
 /** Templates (without HTML) plus the default template per category. */
 bniCommsRouter.get("/templates", wrap(async (_req, res) => {
   const data = await beebark("/templates");
-  res.json({ ...data, defaults: TEMPLATE_FOR_CATEGORY });
+  res.json({ ...data, defaults: TEMPLATE_FOR_CATEGORY, followUpFor: Object.fromEntries(data.items.map((t) => [t.templateId, FOLLOW_UP_FOR(t.templateId)])) });
 }));
 
 /** Rendered preview: { templateId, name } */
@@ -137,6 +139,24 @@ bniCommsRouter.post("/send", wrap(async (req, res) => {
     },
   });
   res.status(201).json(result);
+}));
+
+/**
+ * Follow-up to everyone an earlier send reached (skips bounced, failed,
+ * spam-reported and unsubscribed). { templateId, dryRun: true } returns the
+ * count; a real send needs confirmCount equal to that count.
+ */
+bniCommsRouter.post("/requests/:requestId/follow-up", wrap(async (req, res) => {
+  const { templateId } = req.body;
+  if (typeof templateId !== "string" || !templateId) return res.status(400).json({ error: "Choose a template" });
+  const me = await Employee.findById(req.employeeId, { email: 1 }).lean();
+  const body = { templateId, followUpOf: req.params.requestId, createdBy: me?.email ?? "" };
+  const count = await beebark("/send", { method: "POST", body: { ...body, dryRun: true } });
+  if (req.body.dryRun === true) return res.json(count);
+  if (Number(req.body.confirmCount) !== count.queued) {
+    return res.status(409).json({ error: `The follow-up audience is now ${count.queued}. Check and confirm again.`, queued: count.queued });
+  }
+  res.status(201).json(await beebark("/send", { method: "POST", body }));
 }));
 
 bniCommsRouter.get("/requests", wrap(async (req, res) => {
